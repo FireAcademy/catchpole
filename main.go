@@ -2,6 +2,7 @@ package main
 
 import (
    "database/sql"
+   "time"
    "fmt"
    "log"
    "os"
@@ -12,7 +13,125 @@ import (
    "github.com/gofiber/fiber/v2/middleware/basicauth"
 )
 
+type APIKey struct {
+    api_key string
+    disabled bool
+    free_credits_remaining uint64
+    weekly_limit uint64
+    name string
+    origin string
+    uid string
+}
+
+type WeeklyUsage struct {
+    id int64
+    api_key string
+    credits uint64
+    week string
+}
+
+func getWeekId() string {
+    // https://stackoverflow.com/questions/47193649/week-number-based-on-timestamp-with-go
+    tn := time.Now().UTC()
+    year, week := tn.ISOWeek()
+
+    return fmt.Sprintf("%d-%d", year, week)
+}
+
+
+func getAPIKey(db *sql.DB, api_key string) *APIKey {
+    apiKeyRow := db.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
+
+    apiKey := new(APIKey)
+    err := apiKeyRow.Scan(
+        &apiKey.api_key,
+        &apiKey.disabled,
+        &apiKey.free_credits_remaining,
+        &apiKey.weekly_limit,
+        &apiKey.name,
+        &apiKey.origin,
+        &apiKey.uid,
+    )
+    if err == sql.ErrNoRows {
+        return nil
+    } else if err != nil {
+        log.Fatal(err)
+        return nil
+    }
+
+    return apiKey
+}
+
+func getWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
+    week_id := getWeekId()
+    row := db.QueryRow("SELECT * FROM weekly_usage WHERE api_key = $1 AND week = $2", api_key, week_id)
+
+    weeklyUsage := new(WeeklyUsage)
+    err := row.Scan(
+        &weeklyUsage.id,
+        &weeklyUsage.api_key,
+        &weeklyUsage.credits,
+        &weeklyUsage.week,
+    )
+    if err == sql.ErrNoRows {
+        return nil
+    } else if err != nil {
+        log.Fatal(err)
+        return nil
+    }
+
+    return weeklyUsage
+}
+
+func createWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
+    week_id := getWeekId()
+    result, err := db.Exec(
+        // prevent race conditions
+        "INSERT INTO weekly_usage(api_key, credits, week) SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM weekly_usage WHERE api_key = $1 AND week = $3)",
+        api_key, 0, week_id,
+    )
+    if err != nil {
+        log.Fatal(err)
+        return nil
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        log.Fatal(err)
+        return nil
+    }
+
+    if rowsAffected > 1 {
+        log.Fatal(api_key + " -> ????? (more than 1 row affected in createWeeklyUsage)")
+        return nil
+    }
+
+    return getWeeklyUsage(db, api_key)
+}
+
+func checkAPIKey(api_key string, endpoint string, db *sql.DB) bool {
+    apiKey := getAPIKey(db, api_key)
+    fmt.Println(apiKey)
+    if apiKey == nil {
+        return false
+    }
+
+    weeklyUsage := getWeeklyUsage(db, api_key)
+    if weeklyUsage == nil {
+        weeklyUsage = createWeeklyUsage(db, api_key)
+        if weeklyUsage == nil {
+            return false
+        }
+    }
+
+    return true
+} 
+
 func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB) error {
+    if !checkAPIKey(api_key, endpoint, db) {
+        return c.SendString("Taxman has blocked this request.")
+    }
+
     rows, err := db.Query("SELECT COUNT(*) FROM api_keys")
     if err != nil {
         log.Fatal(err)
@@ -29,6 +148,7 @@ func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB) e
         }
     }
 
+    c.Set("Access-Control-Allow-Origin", "*")
     return c.SendString(fmt.Sprintf("%s-%s-%d", api_key, endpoint, count))
 }
 
