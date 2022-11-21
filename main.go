@@ -1,35 +1,55 @@
 package main
 
 import (
+   "database/sql"
    "fmt"
    "log"
    "os"
 
+   _ "github.com/lib/pq" // add this
    "github.com/gofiber/fiber/v2"
    "github.com/gofiber/fiber/v2/middleware/monitor"
    "github.com/gofiber/fiber/v2/middleware/basicauth"
 )
 
-func leafletHandler(c *fiber.Ctx, api_key string, endpoint string) error {
-    return c.SendString(api_key + ":" + endpoint)
+func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB) error {
+    rows, err := db.Query("SELECT COUNT(*) FROM api_keys")
+    if err != nil {
+        log.Fatal(err)
+        return c.SendString("db error :(")
+    }
+    defer rows.Close()
+
+    var count int
+
+    for rows.Next() {   
+        if err := rows.Scan(&count); err != nil {
+            log.Fatal(err)
+            return c.SendString("db error :(")
+        }
+    }
+
+    return c.SendString(fmt.Sprintf("%s-%s-%d", api_key, endpoint, count))
 }
 
-func leafletRouteWithAPIKeyHandler(c *fiber.Ctx) error {
+func leafletRouteWithAPIKeyHandler(c *fiber.Ctx, db *sql.DB) error {
     api_key := c.Params("api_key")
     endpoint := c.Params("endpoint")
 
     c.Set("X-API-Key", api_key)
-    return leafletHandler(c, api_key, endpoint)
+    return leafletHandler(c, api_key, endpoint, db)
 }
 
-func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx) error {
+func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB) error {
     api_key := c.Query("api-key")
     if api_key == "" {
         api_key = c.Get("X-API-Key")
+    } else {
+        c.Set("X-API-Key", api_key)
     }
     endpoint := c.Params("endpoint")
 
-    return leafletHandler(c, api_key, endpoint)
+    return leafletHandler(c, api_key, endpoint, db)
 }
 
 func main() {
@@ -51,16 +71,38 @@ func main() {
    fmt.Printf("Leaflet at http://%s:%s\n", leaflet_host, leaflet_port)
 
 
-   app.Get("/", func(c *fiber.Ctx) error {
+    // Index
+    app.Get("/", func(c *fiber.Ctx) error {
         return c.SendString("Taxman is alive and well.")
     })
 
-    app.Get("/:api_key<guid>/leaflet/:endpoint", leafletRouteWithAPIKeyHandler)
-    app.Post("/:api_key<guid>/leaflet/:endpoint", leafletRouteWithAPIKeyHandler)
+    // DB
+    db_conn_string := os.Getenv("DB_CONN_STRING")
+    if db_conn_string == "" {
+        fmt.Printf("DB_CONN_STRING not specified, exiting :(\n")
+        return
+    }
+    db, err := sql.Open("postgres", db_conn_string)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-    app.Get("/leaflet/:endpoint", leafletRouteWithoutAPIKeyHandler)
-    app.Post("/leaflet/:endpoint", leafletRouteWithoutAPIKeyHandler)
+    // Leaflet
+    app.Get("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
+        return leafletRouteWithAPIKeyHandler(c, db)
+    })
+    app.Post("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
+        return leafletRouteWithAPIKeyHandler(c, db)
+    })
 
+    app.Get("/leaflet/:endpoint", func(c *fiber.Ctx) error {
+        return leafletRouteWithoutAPIKeyHandler(c, db)
+    })
+    app.Post("/leaflet/:endpoint", func(c *fiber.Ctx) error {
+        return leafletRouteWithoutAPIKeyHandler(c, db)
+    })
+
+    // Metrics
     // admin group (routes) are protected by password
     admin_password := os.Getenv("TAXMAN_ADMIN_PASSWORD")
     if admin_password == "" {
@@ -75,5 +117,7 @@ func main() {
     }))
     admin.Get("/", monitor.New(monitor.Config{Title: "Taxman - Metrics"}))
 
-   log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
+
+    // Start server
+    log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
 }
