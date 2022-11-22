@@ -1,20 +1,23 @@
 package main
 
 import (
-   "database/sql"
-   "io/ioutil"
-   "net/http"
-   "errors"
-   "bytes"
-   "time"
-   "fmt"
-   "log"
-   "os"
+    "database/sql"
+    "io/ioutil"
+    "net/http"
+    "errors"
+    "bytes"
+    "time"
+    "fmt"
+    "log"
+    "os"
 
-   _ "github.com/lib/pq" // add this
-   "github.com/gofiber/fiber/v2"
-   "github.com/gofiber/fiber/v2/middleware/monitor"
-   "github.com/gofiber/fiber/v2/middleware/basicauth"
+    _ "github.com/lib/pq" // add this
+    "github.com/gofiber/fiber/v2"
+    "github.com/stripe/stripe-go"
+    "github.com/stripe/stripe-go/webhook"
+    "github.com/gofiber/fiber/v2/middleware/monitor"
+    "github.com/gofiber/fiber/v2/middleware/basicauth"
+
 )
 
 type APIKey struct {
@@ -59,7 +62,7 @@ func getAPIKey(db *sql.DB, api_key string) *APIKey {
     if err == sql.ErrNoRows {
         return nil
     } else if err != nil {
-        log.Fatal(err)
+        log.Print(err)
         return nil
     }
 
@@ -80,7 +83,7 @@ func getWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
     if err == sql.ErrNoRows {
         return nil
     } else if err != nil {
-        log.Fatal(err)
+        log.Print(err)
         return nil
     }
 
@@ -95,18 +98,18 @@ func createWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
         api_key, 0, week_id,
     )
     if err != nil {
-        log.Fatal(err)
+        log.Print(err)
         return nil
     }
 
     rowsAffected, err := result.RowsAffected()
     if err != nil {
-        log.Fatal(err)
+        log.Print(err)
         return nil
     }
 
     if rowsAffected > 1 {
-        log.Fatal(api_key + " -> ????? (more than 1 row affected in createWeeklyUsage)")
+        log.Print(api_key + " -> ????? (more than 1 row affected in createWeeklyUsage)")
         return nil
     }
 
@@ -200,7 +203,7 @@ func checkAPIKeyAndReturnOrigin(api_key string, endpoint string, db *sql.DB) (st
 
     if apiKey.free_credits_remaining > CREDITS_PER_REQUEST {
         if err := decreaseAPIKeyFreeUsage(db, api_key, CREDITS_PER_REQUEST); err != nil {
-            log.Fatal(err)
+            log.Print(err)
             return "", true
         }
     } else {
@@ -220,14 +223,14 @@ func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB, l
     url := fmt.Sprintf("%s/%s", leaflet_base_url, endpoint)
     resp, err := http.Post(url, "application/json", bytes.NewBuffer(c.Body()))
     if err != nil {
-        log.Fatal(err)
+        log.Print(err)
         return c.SendString("Leaflet: error ocurred when processing request")
     }
     defer resp.Body.Close()
     
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
-        log.Fatal(err)
+        log.Print(err)
         return c.SendString("Leaflet: error ocurred when reading response")
     }
     return c.SendString(string(body))
@@ -251,6 +254,23 @@ func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB, leaflet_base_url
     endpoint := c.Params("endpoint")
 
     return leafletHandler(c, api_key, endpoint, db, leaflet_base_url)
+}
+
+func stripeWebhook(c *fiber.Ctx, db *sql.DB) error {
+    stripe_webhook_secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
+    if stripe_webhook_secret == "" {
+        fmt.Printf("STRIPE_WEBHOOK_SECRET not specified - this is BAD!")
+        return c.Status(500).SendString("not ok ser")
+    }
+
+    event, err := webhook.ConstructEvent(c.Body(), c.Get("Stripe-Signature"), stripe_webhook_secret)
+    if err != nil {
+        log.Print(err)
+        return c.Status(400).SendString("not ok ser")
+    }
+
+    fmt.Printf("%s\n", event.Type)
+    return c.SendString("ok ser")
 }
 
 func main() {
@@ -308,6 +328,17 @@ func main() {
     })
     app.Post("/leaflet/:endpoint", func(c *fiber.Ctx) error {
         return leafletRouteWithoutAPIKeyHandler(c, db, leaflet_base_url)
+    })
+
+    // Stripe webhook
+    stripe_token := os.Getenv("STRIPE_SECRET_KEY")
+    if stripe_token == "" {
+        fmt.Printf("STRIPE_SECRET_KEY not set - this might be very bad\n")
+    } else {
+        stripe.Key = stripe_token
+    }
+    app.Post("/stripe/webhook", func(c *fiber.Ctx) error {
+        return stripeWebhook(c, db)
     })
 
     // Metrics
