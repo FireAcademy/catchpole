@@ -4,6 +4,7 @@ import (
     "database/sql"
     "io/ioutil"
     "net/http"
+    "context"
     "errors"
     "bytes"
     "time"
@@ -11,11 +12,15 @@ import (
     "log"
     "os"
 
-    _ "github.com/lib/pq" // add this
+    _ "github.com/lib/pq"
+    firebase "firebase.google.com/go"
+
     "github.com/gofiber/fiber/v2"
     "github.com/stripe/stripe-go"
+    "google.golang.org/api/option"
     "github.com/stripe/stripe-go/webhook"
     "github.com/stripe/stripe-go/customer"
+    "github.com/sacsand/gofiber-firebaseauth"
     "github.com/gofiber/fiber/v2/middleware/monitor"
     "github.com/gofiber/fiber/v2/middleware/basicauth"
 
@@ -427,6 +432,12 @@ func stripeWebhook(c *fiber.Ctx) error {
     return c.SendString("ok ser")
 }
 
+func handleStripeUrlAPIRequest(c *fiber.Ctx) error {
+    currentUser := c.Locals("user").(gofiberfirebaseauth.User)
+    fmt.Println(currentUser)
+    return c.SendString(currentUser.Email)
+}
+
 func main() {
    app := fiber.New()
    port := os.Getenv("TAXMAN_PORT")
@@ -508,6 +519,26 @@ func main() {
     }))
     admin.Get("/", monitor.New(monitor.Config{Title: "Taxman - Metrics"}))
 
+    // Dashboard API
+    fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
+    if fbcreds == "" {
+        log.Fatalf("Firebase credentials not found in FIREBASE_ADMIN_CREDS")
+    }
+    fbapp, err := firebase.NewApp(
+        context.Background(),
+        nil,
+        option.WithCredentialsJSON([]byte(fbcreds)),
+    )
+    if err != nil {
+        log.Fatalf("error initializing Firebase app: %v\n", err)
+    }
+
+    api := app.Group("/api")
+    api.Use(gofiberfirebaseauth.New(gofiberfirebaseauth.Config{
+        FirebaseApp:  fbapp,
+        CheckEmailVerified : true,
+    }))
+    api.Get("/stripe-url", handleStripeUrlAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
