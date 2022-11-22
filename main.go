@@ -285,7 +285,13 @@ func main() {
     }
     db, err := sql.Open("postgres", db_conn_string)
     if err != nil {
-        log.Fatal(err)
+        panic(err)
+    }
+    defer db.Close()
+
+    err = db.Ping()
+    if err != nil {
+        panic(err)
     }
 
     // Leaflet
