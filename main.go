@@ -569,7 +569,7 @@ func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
         }
         s, _ := session.New(params)
 
-        return c.SendString(s.URL);
+        return c.JSON(fiber.Map{"url": s.URL})
     }
 
     params := &stripe.BillingPortalSessionParams{
@@ -579,7 +579,21 @@ func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
     ps, _ := portalsession.New(params)
 
 
-    return c.SendString(ps.URL)
+    return c.JSON(fiber.Map{"url": ps.URL})
+}
+
+func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    user := getUser(uid)
+
+    return c.JSON(fiber.Map{
+        "user": fiber.Map{
+            "uid": uid,
+            "received_free_credits": user.received_free_credits,
+            "has_active_stripe_subscription": user.has_active_stripe_subscription,
+        },
+        "api_keys": "none",
+    });
 }
 
 func main() {
@@ -689,6 +703,7 @@ func main() {
     api.Get("/stripe-url", func (c *fiber.Ctx) error {
         return handleStripeUrlAPIRequest(c, stripe_price_id);
     })
+    api.Get("/dashboard-data", handleDashboardDataAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
