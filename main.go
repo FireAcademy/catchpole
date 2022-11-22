@@ -2,7 +2,10 @@ package main
 
 import (
    "database/sql"
+   "io/ioutil"
+   "net/http"
    "errors"
+   "bytes"
    "time"
    "fmt"
    "log"
@@ -207,41 +210,38 @@ func checkAPIKeyAndReturnOrigin(api_key string, endpoint string, db *sql.DB) (st
     return apiKey.origin, false
 } 
 
-func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB) error {
+func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB, leaflet_base_url string) error {
     origin, errored := checkAPIKeyAndReturnOrigin(api_key, endpoint, db)
     if errored {
         return c.SendString("Taxman has blocked this request.")
     }
     c.Set("Access-Control-Allow-Origin", origin)
 
-    rows, err := db.Query("SELECT COUNT(*) FROM api_keys")
+    url := fmt.Sprintf("%s/%s", leaflet_base_url, endpoint)
+    resp, err := http.Post(url, "application/json", bytes.NewBuffer(c.Body()))
     if err != nil {
         log.Fatal(err)
-        return c.SendString("db error :(")
+        return c.SendString("Leaflet: error ocurred when processing request")
     }
-    defer rows.Close()
-
-    var count int
-
-    for rows.Next() {   
-        if err := rows.Scan(&count); err != nil {
-            log.Fatal(err)
-            return c.SendString("db error :(")
-        }
+    defer resp.Body.Close()
+    
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        log.Fatal(err)
+        return c.SendString("Leaflet: error ocurred when reading response")
     }
-
-    return c.SendString(fmt.Sprintf("%s-%s-%d", api_key, endpoint, count))
+    return c.SendString(string(body))
 }
 
-func leafletRouteWithAPIKeyHandler(c *fiber.Ctx, db *sql.DB) error {
+func leafletRouteWithAPIKeyHandler(c *fiber.Ctx, db *sql.DB, leaflet_base_url string) error {
     api_key := c.Params("api_key")
     endpoint := c.Params("endpoint")
 
     c.Set("X-API-Key", api_key)
-    return leafletHandler(c, api_key, endpoint, db)
+    return leafletHandler(c, api_key, endpoint, db, leaflet_base_url)
 }
 
-func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB) error {
+func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB, leaflet_base_url string) error {
     api_key := c.Query("api-key")
     if api_key == "" {
         api_key = c.Get("X-API-Key")
@@ -250,7 +250,7 @@ func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB) error {
     }
     endpoint := c.Params("endpoint")
 
-    return leafletHandler(c, api_key, endpoint, db)
+    return leafletHandler(c, api_key, endpoint, db, leaflet_base_url)
 }
 
 func main() {
@@ -269,7 +269,8 @@ func main() {
    if leaflet_port == "" {
        leaflet_port = "18444"
    }
-   fmt.Printf("Leaflet at http://%s:%s\n", leaflet_host, leaflet_port)
+   leaflet_base_url := fmt.Sprintf("http://%s:%s", leaflet_host, leaflet_port)
+   fmt.Printf("Leaflet at %s\n", leaflet_base_url)
 
 
     // Index
@@ -296,17 +297,17 @@ func main() {
 
     // Leaflet
     app.Get("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithAPIKeyHandler(c, db)
+        return leafletRouteWithAPIKeyHandler(c, db, leaflet_base_url)
     })
     app.Post("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithAPIKeyHandler(c, db)
+        return leafletRouteWithAPIKeyHandler(c, db, leaflet_base_url)
     })
 
     app.Get("/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithoutAPIKeyHandler(c, db)
+        return leafletRouteWithoutAPIKeyHandler(c, db, leaflet_base_url)
     })
     app.Post("/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithoutAPIKeyHandler(c, db)
+        return leafletRouteWithoutAPIKeyHandler(c, db, leaflet_base_url)
     })
 
     // Metrics
