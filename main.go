@@ -43,6 +43,23 @@ type WeeklyUsage struct {
     week string
 }
 
+type User struct {
+    uid string
+    has_active_stripe_subscription bool
+    stripe_user_id sql.NullString
+    stripe_item_id sql.NullString
+    stripe_subscription_id sql.NullString
+    stripe_product_id sql.NullString
+    stripe_price_id sql.NullString
+}
+
+type GiftCode struct {
+    code string
+    credits int64
+    used bool
+    uid sql.NullString
+}
+
 var db *sql.DB;
 
 func getWeekId() string {
@@ -263,6 +280,22 @@ func revokeAPIKeys(
     }
 
     return nil
+}
+
+func getWeeklyUsageForUser(uid string) (int64, error) {
+    week_id := getWeekId()
+    row := db.QueryRow("SELECT SUM(credits) FROM weekly_usage WHERE uid = $1 AND week = $2", uid, week_id)
+
+    var totalWeeklyUsage int64
+    err := row.Scan(&totalWeeklyUsage)
+    if err == sql.ErrNoRows {
+        return 0, nil
+    } else if err != nil {
+        log.Print(err)
+        return 0, err
+    }
+
+    return totalWeeklyUsage, nil
 }
 
 func checkAPIKeyAndReturnOrigin(api_key string, endpoint string) (string /*origin*/, bool /*errored*/) {
