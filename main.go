@@ -14,16 +14,18 @@ import (
 
     _ "github.com/lib/pq"
     firebase "firebase.google.com/go"
+    portalsession "github.com/stripe/stripe-go/v74/billingportal/session"
 
     "github.com/gofiber/fiber/v2"
-    "github.com/stripe/stripe-go"
     "google.golang.org/api/option"
-    "github.com/stripe/stripe-go/webhook"
-    "github.com/stripe/stripe-go/customer"
+    "github.com/stripe/stripe-go/v74"
+    "github.com/stripe/stripe-go/v74/webhook"
     "github.com/sacsand/gofiber-firebaseauth"
+    "github.com/stripe/stripe-go/v74/customer"
+    "github.com/stripe/stripe-go/v74/subscription"
     "github.com/gofiber/fiber/v2/middleware/monitor"
     "github.com/gofiber/fiber/v2/middleware/basicauth"
-
+    "github.com/stripe/stripe-go/v74/checkout/session"
 )
 
 type APIKey struct {
@@ -45,6 +47,7 @@ type WeeklyUsage struct {
 
 type User struct {
     uid string
+    received_free_credits bool
     has_active_stripe_subscription bool
     stripe_user_id sql.NullString
     stripe_item_id sql.NullString
@@ -70,12 +73,11 @@ func getWeekId() string {
     return fmt.Sprintf("%d-%d", year, week)
 }
 
-
 func getAPIKey(api_key string) *APIKey {
-    apiKeyRow := db.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
+    row := db.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
 
     apiKey := new(APIKey)
-    err := apiKeyRow.Scan(
+    err := row.Scan(
         &apiKey.api_key,
         &apiKey.disabled,
         &apiKey.free_credits_remaining,
@@ -84,15 +86,49 @@ func getAPIKey(api_key string) *APIKey {
         &apiKey.origin,
         &apiKey.uid,
     )
+
     if err == sql.ErrNoRows {
         return nil
-    } else if err != nil {
+    }
+    if err != nil {
         log.Print(err)
         return nil
     }
-
     return apiKey
 }
+
+func getUser(uid string) *User {
+    row := db.QueryRow("SELECT * FROM users WHERE uid = $1", uid)
+
+    user := new(User)
+    err := row.Scan(
+        &user.uid,
+        &user.received_free_credits,
+        &user.has_active_stripe_subscription,
+        &user.stripe_user_id,
+        &user.stripe_item_id,
+        &user.stripe_subscription_id,
+        &user.stripe_product_id,
+        &user.stripe_price_id,
+    )
+    
+    if err == sql.ErrNoRows {
+        _, err = db.Exec(
+            "INSERT INTO users(uid, received_free_credits, has_active_stripe_subscription) VALUES($1, false, false)",
+            uid,
+        )
+        if err != nil {
+            return getUser(uid)
+        }
+    }
+
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+    return user
+}
+
 
 func getWeeklyUsage(api_key string) *WeeklyUsage {
     week_id := getWeekId()
@@ -197,7 +233,7 @@ func billCredits(api_key string, uid string, credits uint64) error {
     }
 
     if rowsAffected < 1 {
-        result, err = db.Exec(
+        _, err = db.Exec(
             "INSERT INTO credits_to_bill(api_key, uid, credits) VALUES($1, $2, $3)",
             api_key, uid, credits,
         )
@@ -267,6 +303,32 @@ func updateCustomerActiveSubscription(
 
     return nil
 }
+
+func updateUserStripeId(
+    uid string,
+    stripe_user_id string,
+) error {
+    result, err := db.Exec(
+        "UPDATE users SET stripe_user_id = $1 WHERE uid = $2",
+        stripe_user_id, uid,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected > 1 {
+        err = errors.New(stripe_user_id + " -> ????? (more than 1 rows affected in updateUserStripeId)")
+        return err
+    }
+
+    return nil
+}
+
 
 func revokeAPIKeys(
     uid string,
@@ -386,14 +448,15 @@ func stripeWebhook(c *fiber.Ctx) error {
     }
 
     switch event.Type {
-        case "customer.subscription.created":
+        case "checkout.session.completed":
             customerId := event.Data.Object["customer"].(string)
-            subscriptionId := event.Data.Object["id"].(string)
-            item := event.Data.Object["items"].(map[string]interface{})["data"].([]interface {})[0].(map[string]interface{})
-            itemId := item["id"].(string)
-            plan := item["plan"].(map[string]interface{})
-            productId := plan["id"].(string)
-            priceId := plan["product"].(string)
+            subscriptionId := event.Data.Object["subscription"].(string)
+            s, _ := subscription.Get(subscriptionId, nil)
+
+            item := s.Items.Data[0]
+            itemId := item.ID
+            productId := item.Plan.ID
+            priceId := item.Plan.Product.ID
 
             customer, err := customer.Get(customerId, nil)
             if err != nil {
@@ -465,10 +528,58 @@ func stripeWebhook(c *fiber.Ctx) error {
     return c.SendString("ok ser")
 }
 
-func handleStripeUrlAPIRequest(c *fiber.Ctx) error {
-    currentUser := c.Locals("user").(gofiberfirebaseauth.User)
-    fmt.Println(currentUser)
-    return c.SendString(currentUser.Email)
+func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
+    authUser := c.Locals("user").(gofiberfirebaseauth.User)
+    uid := authUser.UserID
+    email := authUser.Email
+    user := getUser(uid)
+
+    shouldCheckOut := !user.stripe_subscription_id.Valid || user.stripe_subscription_id.String == "";
+
+    if shouldCheckOut {
+        shouldCreateCustomer := !user.stripe_user_id.Valid || user.stripe_user_id.String == "";
+
+        if(shouldCreateCustomer) {
+            params := &stripe.CustomerParams{
+                Description: stripe.String("An awesome customer🔥"),
+                Email: stripe.String(email),
+            }
+            params.AddMetadata("uid", uid)
+            c, _ := customer.New(params)
+
+            err := updateUserStripeId(uid, c.ID)
+            if err != nil {
+                return err
+            }
+
+            user.stripe_user_id = sql.NullString{String: c.ID, Valid: true}
+        }
+
+        params := &stripe.CheckoutSessionParams{
+            Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+            SuccessURL: stripe.String("https://dashboard.fireacademy.io/success"),
+            CancelURL: stripe.String("https://dashboard.fireacademy.io/"),
+            Customer: stripe.String(user.stripe_user_id.String),
+        }
+        params.LineItems = []*stripe.CheckoutSessionLineItemParams{
+            &stripe.CheckoutSessionLineItemParams{
+                Price: stripe.String(price_id),
+                Quantity: stripe.Int64(1),
+            },
+        }
+        s, _ := session.New(params)
+
+        return c.SendString(s.URL);
+    }
+
+    params := &stripe.BillingPortalSessionParams{
+        Customer:  stripe.String(user.stripe_user_id.String),
+        ReturnURL: stripe.String("https://dashboard.fireacademy.io/"),
+    }
+    ps, _ := portalsession.New(params)
+
+
+    return c.SendString(ps.URL)
 }
 
 func main() {
@@ -567,11 +678,17 @@ func main() {
     }
 
     api := app.Group("/api")
+    stripe_price_id := os.Getenv("STRIPE_PRICE_ID")
+    if stripe_price_id == "" {
+        log.Fatalf("STRIPE_PRICE_ID environment variable not set; exiting...")
+    }
     api.Use(gofiberfirebaseauth.New(gofiberfirebaseauth.Config{
         FirebaseApp:  fbapp,
         CheckEmailVerified : true,
     }))
-    api.Get("/stripe-url", handleStripeUrlAPIRequest)
+    api.Get("/stripe-url", func (c *fiber.Ctx) error {
+        return handleStripeUrlAPIRequest(c, stripe_price_id);
+    })
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
