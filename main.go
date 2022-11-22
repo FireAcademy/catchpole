@@ -269,6 +269,26 @@ func stripeWebhook(c *fiber.Ctx, db *sql.DB) error {
         return c.Status(400).SendString("not ok ser")
     }
 
+    // get inspiration from:
+    // https://github.com/FireAcademy/fireacademy-firebase/blob/master/functions/src/stripe.ts
+    switch event.Type {
+        case "checkout.session.completed":
+            // someone completed a checkout session!
+            // there's a new subscriber 
+        case "invoice.paid":
+            // someone paid their invoice
+            // mark them as a paying customer if they were not
+        case "invoice.payment_failed":
+            // someone failed to pay the money they own us
+            // diasble their keys, then call in the mob
+        case "customer.subscription.deleted":
+            // someone deleted teir subscription :(
+            // time to mark them as a non-customer
+        default:
+            return c.Status(200).SendString("wat am I supposed to do with dat?!")
+    }
+
+
     fmt.Printf("%s\n", event.Type)
     return c.SendString("ok ser")
 }
