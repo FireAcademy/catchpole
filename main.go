@@ -15,6 +15,7 @@ import (
     "github.com/gofiber/fiber/v2"
     "github.com/stripe/stripe-go"
     "github.com/stripe/stripe-go/webhook"
+    "github.com/stripe/stripe-go/customer"
     "github.com/gofiber/fiber/v2/middleware/monitor"
     "github.com/gofiber/fiber/v2/middleware/basicauth"
 
@@ -37,6 +38,8 @@ type WeeklyUsage struct {
     week string
 }
 
+var db *sql.DB;
+
 func getWeekId() string {
     // https://stackoverflow.com/questions/47193649/week-number-based-on-timestamp-with-go
     tn := time.Now().UTC()
@@ -46,7 +49,7 @@ func getWeekId() string {
 }
 
 
-func getAPIKey(db *sql.DB, api_key string) *APIKey {
+func getAPIKey(api_key string) *APIKey {
     apiKeyRow := db.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
 
     apiKey := new(APIKey)
@@ -69,7 +72,7 @@ func getAPIKey(db *sql.DB, api_key string) *APIKey {
     return apiKey
 }
 
-func getWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
+func getWeeklyUsage(api_key string) *WeeklyUsage {
     week_id := getWeekId()
     row := db.QueryRow("SELECT * FROM weekly_usage WHERE api_key = $1 AND week = $2", api_key, week_id)
 
@@ -90,7 +93,7 @@ func getWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
     return weeklyUsage
 }
 
-func createWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
+func createWeeklyUsage(api_key string) *WeeklyUsage {
     week_id := getWeekId()
     result, err := db.Exec(
         // prevent race conditions
@@ -113,10 +116,10 @@ func createWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
         return nil
     }
 
-    return getWeeklyUsage(db, api_key)
+    return getWeeklyUsage(api_key)
 }
 
-func decreaseAPIKeyFreeUsage(db *sql.DB, api_key string, credits uint64) error {
+func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
     result, err := db.Exec(
         "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
         credits, api_key,
@@ -138,7 +141,7 @@ func decreaseAPIKeyFreeUsage(db *sql.DB, api_key string, credits uint64) error {
     return nil
 }
 
-func billCredits(db *sql.DB, api_key string, uid string, credits uint64) error {
+func billCredits(api_key string, uid string, credits uint64) error {
     week_id := getWeekId()
     result, err := db.Exec(
         "UPDATE weekly_usage SET credits = credits + $1 WHERE api_key = $2 AND week = $3",
@@ -182,17 +185,92 @@ func billCredits(db *sql.DB, api_key string, uid string, credits uint64) error {
     return nil
 }
 
-func checkAPIKeyAndReturnOrigin(api_key string, endpoint string, db *sql.DB) (string /*origin*/, bool /*errored*/) {
+func updateCustomerBillingDetails(
+    uid string,
+    has_active_stripe_subscription bool,
+    stripe_user_id string,
+    stripe_item_id string,
+    stripe_subscription_id string,
+    stripe_product_id string,
+    stripe_price_id string,
+) error {
+    result, err := db.Exec(
+        "UPDATE users SET has_active_stripe_subscription = $1," +
+        " stripe_user_id = $2," +
+        " stripe_item_id = $3," + 
+        " stripe_subscription_id = $4," + 
+        " stripe_product_id = $5," +
+        " stripe_price_id = $6 " +
+        "WHERE uid = $7",
+        has_active_stripe_subscription, stripe_user_id, stripe_item_id, stripe_subscription_id, stripe_product_id, stripe_price_id, uid,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(uid + " -> ????? (0 or more than 1 row affected in updateCustomerBillingDetails)")
+        return err
+    }
+
+    return nil
+}
+
+func updateCustomerActiveSubscription(
+    stripe_user_id string,
+    has_active_stripe_subscription bool,
+) error {
+    result, err := db.Exec(
+        "UPDATE users SET has_active_stripe_subscription = $1 WHERE stripe_user_id = $2",
+        has_active_stripe_subscription, stripe_user_id,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected > 1 {
+        err = errors.New(stripe_user_id + " -> ????? (more than 1 rows affected in updateCustomerActiveSubscription)")
+        return err
+    }
+
+    return nil
+}
+
+func revokeAPIKeys(
+    uid string,
+) error {
+    _, err := db.Exec(
+        "UPDATE api_keys SET disabled = true WHERE uid = $1",
+        uid,
+    )
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
+func checkAPIKeyAndReturnOrigin(api_key string, endpoint string) (string /*origin*/, bool /*errored*/) {
     const CREDITS_PER_REQUEST = 420;
 
-    apiKey := getAPIKey(db, api_key)
+    apiKey := getAPIKey(api_key)
     if apiKey == nil || apiKey.disabled {
         return "", true
     }
 
-    weeklyUsage := getWeeklyUsage(db, api_key)
+    weeklyUsage := getWeeklyUsage(api_key)
     if weeklyUsage == nil {
-        weeklyUsage = createWeeklyUsage(db, api_key)
+        weeklyUsage = createWeeklyUsage(api_key)
         if weeklyUsage == nil {
             return "", true
         }
@@ -202,19 +280,19 @@ func checkAPIKeyAndReturnOrigin(api_key string, endpoint string, db *sql.DB) (st
     }
 
     if apiKey.free_credits_remaining > CREDITS_PER_REQUEST {
-        if err := decreaseAPIKeyFreeUsage(db, api_key, CREDITS_PER_REQUEST); err != nil {
+        if err := decreaseAPIKeyFreeUsage(api_key, CREDITS_PER_REQUEST); err != nil {
             log.Print(err)
             return "", true
         }
     } else {
-        billCredits(db, api_key, apiKey.uid, CREDITS_PER_REQUEST)
+        billCredits(api_key, apiKey.uid, CREDITS_PER_REQUEST)
     }
 
     return apiKey.origin, false
 } 
 
-func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB, leaflet_base_url string) error {
-    origin, errored := checkAPIKeyAndReturnOrigin(api_key, endpoint, db)
+func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, leaflet_base_url string) error {
+    origin, errored := checkAPIKeyAndReturnOrigin(api_key, endpoint)
     if errored {
         return c.SendString("Taxman has blocked this request.")
     }
@@ -236,15 +314,15 @@ func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB, l
     return c.SendString(string(body))
 }
 
-func leafletRouteWithAPIKeyHandler(c *fiber.Ctx, db *sql.DB, leaflet_base_url string) error {
+func leafletRouteWithAPIKeyHandler(c *fiber.Ctx, leaflet_base_url string) error {
     api_key := c.Params("api_key")
     endpoint := c.Params("endpoint")
 
     c.Set("X-API-Key", api_key)
-    return leafletHandler(c, api_key, endpoint, db, leaflet_base_url)
+    return leafletHandler(c, api_key, endpoint, leaflet_base_url)
 }
 
-func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB, leaflet_base_url string) error {
+func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, leaflet_base_url string) error {
     api_key := c.Query("api-key")
     if api_key == "" {
         api_key = c.Get("X-API-Key")
@@ -253,10 +331,10 @@ func leafletRouteWithoutAPIKeyHandler(c *fiber.Ctx, db *sql.DB, leaflet_base_url
     }
     endpoint := c.Params("endpoint")
 
-    return leafletHandler(c, api_key, endpoint, db, leaflet_base_url)
+    return leafletHandler(c, api_key, endpoint, leaflet_base_url)
 }
 
-func stripeWebhook(c *fiber.Ctx, db *sql.DB) error {
+func stripeWebhook(c *fiber.Ctx) error {
     stripe_webhook_secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
     if stripe_webhook_secret == "" {
         fmt.Printf("STRIPE_WEBHOOK_SECRET not specified - this is BAD!")
@@ -269,27 +347,83 @@ func stripeWebhook(c *fiber.Ctx, db *sql.DB) error {
         return c.Status(400).SendString("not ok ser")
     }
 
-    // get inspiration from:
-    // https://github.com/FireAcademy/fireacademy-firebase/blob/master/functions/src/stripe.ts
     switch event.Type {
-        case "checkout.session.completed":
-            // someone completed a checkout session!
-            // there's a new subscriber 
+        case "customer.subscription.created":
+            customerId := event.Data.Object["customer"].(string)
+            subscriptionId := event.Data.Object["id"].(string)
+            item := event.Data.Object["items"].(map[string]interface{})["data"].([]interface {})[0].(map[string]interface{})
+            itemId := item["id"].(string)
+            plan := item["plan"].(map[string]interface{})
+            productId := plan["id"].(string)
+            priceId := plan["product"].(string)
+
+            customer, err := customer.Get(customerId, nil)
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #1 ser")
+            }
+            uid := customer.Metadata["uid"]
+            err = updateCustomerBillingDetails(uid, true, customerId, itemId, subscriptionId, productId, priceId)
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #2 ser")
+            }
+            break;
         case "invoice.paid":
-            // someone paid their invoice
-            // mark them as a paying customer if they were not
+            customerId := event.Data.Object["customer"].(string)
+            
+            err := updateCustomerActiveSubscription(customerId, true);
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error ser")
+            }
+            break;
         case "invoice.payment_failed":
-            // someone failed to pay the money they own us
-            // diasble their keys, then call in the mob
+            customerId := event.Data.Object["customer"].(string)
+            customer, err := customer.Get(customerId, nil)
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #1 ser")
+            }
+            uid := customer.Metadata["uid"]
+
+            err = updateCustomerActiveSubscription(customerId, false);
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #2 ser")
+            }
+
+            err = revokeAPIKeys(uid);
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #3 ser")
+            }
+            break;
         case "customer.subscription.deleted":
-            // someone deleted teir subscription :(
-            // time to mark them as a non-customer
+            customerId := event.Data.Object["customer"].(string)
+            customer, err := customer.Get(customerId, nil)
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #1 ser")
+            }
+            uid := customer.Metadata["uid"]
+            
+            err = updateCustomerBillingDetails(uid, false, customerId, "", "", "", "")
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #2 ser")
+            }
+
+            err = revokeAPIKeys(uid);
+            if err != nil {
+                log.Print(err);
+                return c.Status(500).SendString("error #3 ser")
+            }
+            break;
         default:
             return c.Status(200).SendString("wat am I supposed to do with dat?!")
     }
 
-
-    fmt.Printf("%s\n", event.Type)
     return c.SendString("ok ser")
 }
 
@@ -337,17 +471,17 @@ func main() {
 
     // Leaflet
     app.Get("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithAPIKeyHandler(c, db, leaflet_base_url)
+        return leafletRouteWithAPIKeyHandler(c, leaflet_base_url)
     })
     app.Post("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithAPIKeyHandler(c, db, leaflet_base_url)
+        return leafletRouteWithAPIKeyHandler(c, leaflet_base_url)
     })
 
     app.Get("/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithoutAPIKeyHandler(c, db, leaflet_base_url)
+        return leafletRouteWithoutAPIKeyHandler(c, leaflet_base_url)
     })
     app.Post("/leaflet/:endpoint", func(c *fiber.Ctx) error {
-        return leafletRouteWithoutAPIKeyHandler(c, db, leaflet_base_url)
+        return leafletRouteWithoutAPIKeyHandler(c, leaflet_base_url)
     })
 
     // Stripe webhook
@@ -357,9 +491,7 @@ func main() {
     } else {
         stripe.Key = stripe_token
     }
-    app.Post("/stripe/webhook", func(c *fiber.Ctx) error {
-        return stripeWebhook(c, db)
-    })
+    app.Post("/stripe/webhook", stripeWebhook)
 
     // Metrics
     // admin group (routes) are protected by password
