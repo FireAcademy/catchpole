@@ -2,6 +2,7 @@ package main
 
 import (
    "database/sql"
+   "errors"
    "time"
    "fmt"
    "log"
@@ -109,28 +110,109 @@ func createWeeklyUsage(db *sql.DB, api_key string) *WeeklyUsage {
     return getWeeklyUsage(db, api_key)
 }
 
-func checkAPIKey(api_key string, endpoint string, db *sql.DB) bool {
+func decreaseAPIKeyFreeUsage(db *sql.DB, api_key string, credits uint64) error {
+    result, err := db.Exec(
+        "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
+        credits, api_key,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in decreaseAPIKeyFreeUsage)")
+        return err
+    }
+
+    return nil
+}
+
+func billCredits(db *sql.DB, api_key string, uid string, credits uint64) error {
+    week_id := getWeekId()
+    result, err := db.Exec(
+        "UPDATE weekly_usage SET credits = credits + $1 WHERE api_key = $2 AND week = $3",
+        credits, api_key, week_id,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in billCredits, #1)")
+        return err
+    }
+
+    result, err = db.Exec(
+        "UPDATE credits_to_bill SET credits = credits + $1 WHERE api_key = $2",
+        credits, api_key,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err = result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected < 1 {
+        result, err = db.Exec(
+            "INSERT INTO credits_to_bill(api_key, uid, credits) VALUES($1, $2, $3)",
+            api_key, uid, credits,
+        )
+        return err
+    }
+
+    return nil
+}
+
+func checkAPIKeyAndReturnOrigin(api_key string, endpoint string, db *sql.DB) (string /*origin*/, bool /*errored*/) {
+    const CREDITS_PER_REQUEST = 420;
+
     apiKey := getAPIKey(db, api_key)
-    fmt.Println(apiKey)
-    if apiKey == nil {
-        return false
+    if apiKey == nil || apiKey.disabled {
+        return "", true
     }
 
     weeklyUsage := getWeeklyUsage(db, api_key)
     if weeklyUsage == nil {
         weeklyUsage = createWeeklyUsage(db, api_key)
         if weeklyUsage == nil {
-            return false
+            return "", true
         }
     }
+    if apiKey.weekly_limit != 0 && weeklyUsage.credits >= apiKey.weekly_limit {
+        return "", true
+    }
 
-    return true
+    if apiKey.free_credits_remaining > CREDITS_PER_REQUEST {
+        if err := decreaseAPIKeyFreeUsage(db, api_key, CREDITS_PER_REQUEST); err != nil {
+            log.Fatal(err)
+            return "", true
+        }
+    } else {
+        billCredits(db, api_key, apiKey.uid, CREDITS_PER_REQUEST)
+    }
+
+    return apiKey.origin, false
 } 
 
 func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB) error {
-    if !checkAPIKey(api_key, endpoint, db) {
+    origin, errored := checkAPIKeyAndReturnOrigin(api_key, endpoint, db)
+    if errored {
         return c.SendString("Taxman has blocked this request.")
     }
+    c.Set("Access-Control-Allow-Origin", origin)
 
     rows, err := db.Query("SELECT COUNT(*) FROM api_keys")
     if err != nil {
@@ -148,7 +230,6 @@ func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, db *sql.DB) e
         }
     }
 
-    c.Set("Access-Control-Allow-Origin", "*")
     return c.SendString(fmt.Sprintf("%s-%s-%d", api_key, endpoint, count))
 }
 
