@@ -194,6 +194,27 @@ func getUser(uid string) *User {
     return user
 }
 
+func getGiftCode(code string) *GiftCode {
+    row := db.QueryRow("SELECT * FROM gift_codes WHERE code = $1", code)
+
+    giftCode := new(GiftCode)
+    err := row.Scan(
+        &giftCode.code,
+        &giftCode.credits,
+        &giftCode.used,
+        &giftCode.uid,
+    )
+    
+    if err == sql.ErrNoRows {
+        return nil
+    }
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+
+    return giftCode
+}
 
 func getWeeklyUsage(api_key string) *WeeklyUsage {
     week_id := getWeekId()
@@ -270,7 +291,57 @@ func createAPIKey(uid string, free_credits int64, weekly_credit_limit int64, nam
     return nil
 }
 
+func generateGiftCode(credits int64) (string, error) {
+    id := uuid.New()
+    gift_code := id.String()
+    result, err := db.Exec(
+        "INSERT INTO " + 
+        "gift_codes(code, credits, used) " + 
+        "VALUES($1, $2, false)",
+        gift_code, credits,
+    )
+    if err != nil {
+        log.Print(err)
+        return "", err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        log.Print(err)
+        return "", err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(gift_code + " -> ????? (0 or more than 1 row affected in generateGiftCode)")
+        return "", err
+    }
+
+    return gift_code, nil
+}
+
 func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
+    result, err := db.Exec(
+        "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
+        credits, api_key,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in decreaseAPIKeyFreeUsage)")
+        return err
+    }
+
+    return nil
+}
+
+func useGiftCode(api_key string, code uint64) error {
     result, err := db.Exec(
         "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
         credits, api_key,
@@ -878,6 +949,48 @@ func handleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     });
 }
 
+type GenerateGiftCodesArgs struct {
+    Count int `json:"count"`
+    Credits int64 `json:"credits"`
+}
+
+func handleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
+    // user := c.Locals("user").(gofiberfirebaseauth.User)
+    // email := user.Email
+    email := "y@kuhi.to"
+
+    if email != "y@kuhi.to" {
+        return c.Status(500).JSON(fiber.Map{"message": "only yakuhito can access this endpoint!"})
+    }
+
+    args := new(GenerateGiftCodesArgs)
+
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+    }
+
+    if args.Count < 1 || args.Count > 10000 {
+        return c.Status(500).JSON(fiber.Map{"message": "count should be in [1, 10000]"})
+    }
+
+    // don't check credits it's admin that's making the request
+    gift_codes := make([]string, 0)
+    for i := 0; i < args.Count; i++ {
+        gift_code, err := generateGiftCode(args.Credits)
+        if err != nil {
+            log.Print(err)
+            return c.Status(500).JSON(fiber.Map{"message": "error while generating code", "error": err})
+        }
+        gift_codes = append(gift_codes, gift_code)
+    }
+
+    return c.JSON(fiber.Map{
+        "success": true,
+        "gift_codes": gift_codes,
+    });
+}
+
 func main() {
    app := fiber.New()
    port := os.Getenv("TAXMAN_PORT")
@@ -989,8 +1102,9 @@ func main() {
     api.Get("/dashboard-data", handleDashboardDataAPIRequest)
     api.Post("/api-key", handleCreateAPIKeyAPIRequest)
     api.Put("/api-key", handleUpdateAPIKeyAPIRequest)
+    api.Post("/generate-gift-codes", handleGenerateGiftCodesAPIRequest)
 
-    // app.Put("/test", handleUpdateAPIKeyAPIRequest)
+    app.Post("/test", handleGenerateGiftCodesAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
