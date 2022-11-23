@@ -268,6 +268,41 @@ func getWeeklyUsage(api_key string) *WeeklyUsage {
     return weeklyUsage
 }
 
+func getAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage) {
+    week_id := getWeekId()
+    row := db.QueryRow("SELECT " + 
+        "weekly_usage.id, weekly_usage.api_key, weekly_usage.credits, weekly_usage.week, " +
+        "api_keys.api_key, api_keys.disabled, api_keys.free_credits_remaining, api_keys.weekly_credit_limit, api_keys.name, api_keys.origin, api_keys.uid " +
+        "FROM weekly_usage LEFT JOIN api_keys " + 
+        "ON api_keys.api_key = weekly_usage.api_key " + 
+        "AND weekly_usage.api_key = $1 " + 
+        "AND weekly_usage.week = $2", api_key, week_id)
+
+    weeklyUsage := new(WeeklyUsage)
+    apiKey := new(APIKey)
+    err := row.Scan(
+        &weeklyUsage.id,
+        &weeklyUsage.api_key,
+        &weeklyUsage.credits,
+        &weeklyUsage.week,
+        &apiKey.api_key,
+        &apiKey.disabled,
+        &apiKey.free_credits_remaining,
+        &apiKey.weekly_credit_limit,
+        &apiKey.name,
+        &apiKey.origin,
+        &apiKey.uid,
+    )
+    if err == sql.ErrNoRows {
+        return nil, nil
+    } else if err != nil {
+        log.Print(err)
+        return nil, nil
+    }
+
+    return apiKey, weeklyUsage
+}
+
 func createWeeklyUsage(api_key string) *WeeklyUsage {
     week_id := getWeekId()
     result, err := db.Exec(
@@ -350,7 +385,7 @@ func generateGiftCode(credits int64) (string, error) {
     return gift_code, nil
 }
 
-func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
+func decreaseAPIKeyFreeUsage(api_key string, credits int64) error {
     result, err := db.Exec(
         "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
         credits, api_key,
@@ -487,7 +522,7 @@ func updateUserReceivedFreeCredits(uid string, received_free_credits bool) error
     return nil
 }
 
-func billCredits(api_key string, uid string, credits uint64) error {
+func increaseWeeklyUsage(api_key string, credits int64) error {
     week_id := getWeekId()
     result, err := db.Exec(
         "UPDATE weekly_usage SET credits = credits + $1 WHERE api_key = $2 AND week = $3",
@@ -503,11 +538,15 @@ func billCredits(api_key string, uid string, credits uint64) error {
     }
 
     if rowsAffected != 1 {
-        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in billCredits, #1)")
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in increaseWeeklyUsage, #1)")
         return err
     }
 
-    result, err = db.Exec(
+    return nil
+}
+
+func billCredits(api_key string, uid string, credits int64) error {
+    result, err := db.Exec(
         "UPDATE credits_to_bill SET credits = credits + $1 WHERE api_key = $2",
         credits, api_key,
     )
@@ -515,7 +554,7 @@ func billCredits(api_key string, uid string, credits uint64) error {
         return err
     }
 
-    rowsAffected, err = result.RowsAffected()
+    rowsAffected, err := result.RowsAffected()
     if err != nil {
         return err
     }
@@ -632,39 +671,43 @@ func revokeAPIKeys(
     return nil
 }
 
-func checkAPIKeyAndReturnOrigin(api_key string, endpoint string) (string /*origin*/, bool /*errored*/) {
-    const CREDITS_PER_REQUEST = 420;
+func taxTrafficAndReturnOrigin(api_key string, endpoint string, credits_per_request int64) (string /*origin*/, bool /*errored*/) {
+    apiKey, weeklyUsage := getAPIKeyAndWeeklyUsage(api_key)
 
-    apiKey := getAPIKey(api_key)
-    if apiKey == nil || apiKey.disabled {
-        return "", true
-    }
-
-    weeklyUsage := getWeeklyUsage(api_key)
     if weeklyUsage == nil {
         weeklyUsage = createWeeklyUsage(api_key)
+        apiKey = getAPIKey(api_key)
         if weeklyUsage == nil {
             return "", true
         }
     }
+    if apiKey == nil || apiKey.disabled {
+        return "", true
+    }
+
     if apiKey.weekly_credit_limit != -1 && weeklyUsage.credits >= apiKey.weekly_credit_limit {
         return "", true
     }
 
-    if apiKey.free_credits_remaining > CREDITS_PER_REQUEST {
-        if err := decreaseAPIKeyFreeUsage(api_key, CREDITS_PER_REQUEST); err != nil {
+    err := increaseWeeklyUsage(api_key, credits_per_request)
+    if err != nil {
+        return "", true
+    }
+    if apiKey.free_credits_remaining > credits_per_request {
+        if err := decreaseAPIKeyFreeUsage(api_key, credits_per_request); err != nil {
             log.Print(err)
             return "", true
         }
     } else {
-        billCredits(api_key, apiKey.uid, CREDITS_PER_REQUEST)
+        billCredits(api_key, apiKey.uid, credits_per_request)
     }
 
     return apiKey.origin, false
 } 
 
 func leafletHandler(c *fiber.Ctx, api_key string, endpoint string, leaflet_base_url string) error {
-    origin, errored := checkAPIKeyAndReturnOrigin(api_key, endpoint)
+    const CREDITS_PER_REQUEST = 420;
+    origin, errored := taxTrafficAndReturnOrigin(api_key, endpoint, CREDITS_PER_REQUEST)
     if errored {
         return c.SendString("Taxman has blocked this request.")
     }
@@ -1161,6 +1204,15 @@ func main() {
     if err != nil {
         panic(err)
     }
+
+    // Maximum Idle Connections
+    db.SetMaxIdleConns(10)
+    // Maximum Open Connections
+    db.SetMaxOpenConns(20)
+    // Idle Connection Timeout
+    db.SetConnMaxIdleTime(1 * time.Second)
+    // Connection Lifetime
+    db.SetConnMaxLifetime(30 * time.Second)
 
     // Leaflet
     app.Get("/:api_key<guid>/leaflet/:endpoint", func(c *fiber.Ctx) error {
