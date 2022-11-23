@@ -633,8 +633,7 @@ func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
 }
 
 func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
-    // uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
-    uid := "admin" // todo: removeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
     user := getUser(uid)
     if user == nil {
         c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching user"})
@@ -785,9 +784,6 @@ func main() {
         return handleStripeUrlAPIRequest(c, stripe_price_id);
     })
     api.Get("/dashboard-data", handleDashboardDataAPIRequest)
-
-    // TODO: disableeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-    app.Get("/test", handleDashboardDataAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
