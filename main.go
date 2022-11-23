@@ -31,8 +31,8 @@ import (
 type APIKey struct {
     api_key string
     disabled bool
-    free_credits_remaining uint64
-    weekly_limit uint64
+    free_credits_remaining int64
+    weekly_credit_limit int64
     name string
     origin string
     uid string
@@ -41,7 +41,7 @@ type APIKey struct {
 type WeeklyUsage struct {
     id int64
     api_key string
-    credits uint64
+    credits int64
     week string
 }
 
@@ -81,7 +81,7 @@ func getAPIKey(api_key string) *APIKey {
         &apiKey.api_key,
         &apiKey.disabled,
         &apiKey.free_credits_remaining,
-        &apiKey.weekly_limit,
+        &apiKey.weekly_credit_limit,
         &apiKey.name,
         &apiKey.origin,
         &apiKey.uid,
@@ -112,7 +112,7 @@ func getAPIKeysForUser(uid string) []*APIKey {
             &apiKey.api_key,
             &apiKey.disabled,
             &apiKey.free_credits_remaining,
-            &apiKey.weekly_limit,
+            &apiKey.weekly_credit_limit,
             &apiKey.name,
             &apiKey.origin,
             &apiKey.uid,
@@ -129,6 +129,38 @@ func getAPIKeysForUser(uid string) []*APIKey {
     }
 
     return apiKeys
+}
+
+func getWeeklyUsagesForUser(uid string) []*WeeklyUsage {
+    week_id := getWeekId()
+    rows, err := db.Query("SELECT * FROM weekly_usage WHERE week = $1 AND api_key IN (SELECT api_key FROM api_keys WHERE uid = $2)", week_id, uid)
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+    defer rows.Close()
+
+    weeklyUsages := make([]*WeeklyUsage, 0)
+    for rows.Next() {
+        weeklyUsage := new(WeeklyUsage)
+        err := rows.Scan(
+            &weeklyUsage.id,
+            &weeklyUsage.api_key,
+            &weeklyUsage.credits,
+            &weeklyUsage.week,
+        )
+        if err != nil {
+            log.Print(err)
+            return nil
+        }
+        weeklyUsages = append(weeklyUsages, weeklyUsage)
+    }
+    if err = rows.Err(); err != nil {
+        log.Print(err)
+        return nil
+    }
+
+    return weeklyUsages
 }
 
 func getUser(uid string) *User {
@@ -378,22 +410,6 @@ func revokeAPIKeys(
     return nil
 }
 
-func getWeeklyUsageForUser(uid string) (int64, error) {
-    week_id := getWeekId()
-    row := db.QueryRow("SELECT SUM(credits) FROM weekly_usage WHERE uid = $1 AND week = $2", uid, week_id)
-
-    var totalWeeklyUsage int64
-    err := row.Scan(&totalWeeklyUsage)
-    if err == sql.ErrNoRows {
-        return 0, nil
-    } else if err != nil {
-        log.Print(err)
-        return 0, err
-    }
-
-    return totalWeeklyUsage, nil
-}
-
 func checkAPIKeyAndReturnOrigin(api_key string, endpoint string) (string /*origin*/, bool /*errored*/) {
     const CREDITS_PER_REQUEST = 420;
 
@@ -409,7 +425,7 @@ func checkAPIKeyAndReturnOrigin(api_key string, endpoint string) (string /*origi
             return "", true
         }
     }
-    if apiKey.weekly_limit != 0 && weeklyUsage.credits >= apiKey.weekly_limit {
+    if apiKey.weekly_credit_limit != 0 && weeklyUsage.credits >= apiKey.weekly_credit_limit {
         return "", true
     }
 
@@ -617,16 +633,46 @@ func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
 }
 
 func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
-    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    // uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    uid := "admin" // todo: removeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
     user := getUser(uid)
+    if user == nil {
+        c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching user"})
+    }
+    api_keys := getAPIKeysForUser(uid)
+    if api_keys == nil {
+        c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching API keys"})
+    }
+    weekly_usages := getWeeklyUsagesForUser(uid)
+    if weekly_usages == nil {
+        c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching weekly usage"})
+    }
 
+    usages := make(map[string]int64)
+    for _, weekly_usage := range weekly_usages {
+        usages[weekly_usage.api_key] = weekly_usage.credits
+    }
+
+    var api_keys_populated []interface{}
+    for _, api_key := range api_keys {
+        api_keys_populated = append(api_keys_populated, fiber.Map{
+            "api_key": api_key.api_key,
+            "disabled": api_key.disabled,
+            "free_credits_remaining": api_key.free_credits_remaining,
+            "weekly_credit_limit": api_key.weekly_credit_limit,
+            "name": api_key.name,
+            "origin": api_key.origin,
+            "credits_used_this_week": usages[api_key.api_key],
+        })
+    }
+    
     return c.JSON(fiber.Map{
         "user": fiber.Map{
             "uid": uid,
             "received_free_credits": user.received_free_credits,
             "has_active_stripe_subscription": user.has_active_stripe_subscription,
         },
-        "api_keys": "none",
+        "api_keys": api_keys_populated,
     });
 }
 
@@ -661,7 +707,8 @@ func main() {
         fmt.Printf("DB_CONN_STRING not specified, exiting :(\n")
         return
     }
-    db, err := sql.Open("postgres", db_conn_string)
+    var err error
+    db, err = sql.Open("postgres", db_conn_string)
     if err != nil {
         panic(err)
     }
@@ -738,6 +785,9 @@ func main() {
         return handleStripeUrlAPIRequest(c, stripe_price_id);
     })
     api.Get("/dashboard-data", handleDashboardDataAPIRequest)
+
+    // TODO: disableeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    app.Get("/test", handleDashboardDataAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
