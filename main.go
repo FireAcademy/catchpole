@@ -292,6 +292,33 @@ func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
     return nil
 }
 
+func updateAPIKey(api_key string, disabled bool, weekly_credit_limit int64, name string, origin string) error {
+    result, err := db.Exec(
+        "UPDATE api_keys SET" +
+        " disabled = $1," +
+        " weekly_credit_limit = $2," +
+        " name = $3," +
+        " origin = $4 " +
+        "WHERE api_key = $5",
+        disabled, weekly_credit_limit, name, origin, api_key,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in updateAPIKey)")
+        return err
+    }
+
+    return nil
+}
+
 func updateUserReceivedFreeCredits(uid string, received_free_credits bool) error {
     result, err := db.Exec(
         "UPDATE users SET received_free_credits = $1 WHERE uid = $2",
@@ -786,6 +813,71 @@ func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
     });
 }
 
+type UpdateAPIKeyArgs struct {
+    ApiKey string `json:"api_key"`
+    Disabled bool `json:"disabled"`
+    WeeklyCreditLimit int64 `json:"weekly_credit_limit"`
+    Name string `json:"name"`
+    Origin string `json:"origin"`
+}
+
+func handleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    user := getUser(uid)
+    if user == nil {
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+    }
+
+    args := new(UpdateAPIKeyArgs)
+
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+    }
+
+    // check args.ApiKey
+    if len(args.ApiKey) != 36 {
+        return c.Status(500).JSON(fiber.Map{"message": "invalid API key provided"})
+    }
+    currentApiKey := getAPIKey(args.ApiKey)
+    if currentApiKey == nil || currentApiKey.uid != uid {
+        return c.Status(500).JSON(fiber.Map{"message": "invalid API key provided"})
+    }
+
+    // check args.WeeklyCreditLimit
+    if args.WeeklyCreditLimit < -1 || args.WeeklyCreditLimit > 4200000 * 313337 {
+        return c.Status(500).JSON(fiber.Map{"message": "that's a funny-looking credit limit"})
+    }
+
+    // check args.Name
+    if len(args.Name) < 4 || len(args.Name) > 32 {
+        return c.Status(500).JSON(fiber.Map{"message": "name should be 4-32 chars long"})
+    }
+    
+    // check args.Origin
+    if len(args.Origin) < 1 || len(args.Origin) > 128 {
+        return c.Status(500).JSON(fiber.Map{"message": "origin should be 1-128 chars long"})
+    }
+
+    // check args.WeeklyCreditLimit
+    if !user.has_active_stripe_subscription && args.WeeklyCreditLimit > currentApiKey.free_credits_remaining {
+        return c.Status(500).JSON(fiber.Map{"message": "weekly credit limit can be free usage at most unless you subscribe to our service"})
+    }
+
+    // check args.Disabled
+    // no checks required!
+
+    err := updateAPIKey(args.ApiKey, args.Disabled, args.WeeklyCreditLimit, args.Name, args.Origin)
+    if err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while updating API key"})
+    }
+
+    return c.JSON(fiber.Map{
+        "success": true,
+    });
+}
+
 func main() {
    app := fiber.New()
    port := os.Getenv("TAXMAN_PORT")
@@ -896,8 +988,9 @@ func main() {
     })
     api.Get("/dashboard-data", handleDashboardDataAPIRequest)
     api.Post("/api-key", handleCreateAPIKeyAPIRequest)
+    api.Put("/api-key", handleUpdateAPIKeyAPIRequest)
 
-    // app.Post("/test", handleCreateAPIKeyAPIRequest)
+    // app.Put("/test", handleUpdateAPIKeyAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
