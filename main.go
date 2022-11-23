@@ -1,23 +1,21 @@
 package main
 
 import (
-    "database/sql"
-    "io/ioutil"
-    "net/http"
-    "context"
-    "errors"
-    "bytes"
-    "time"
+    "os"
     "fmt"
     "log"
-    "os"
-
+    "time"
+    "bytes"
+    "errors"
+    "context"
+    "net/http"
+    "io/ioutil"
+    "database/sql"
     _ "github.com/lib/pq"
-    firebase "firebase.google.com/go"
-    portalsession "github.com/stripe/stripe-go/v74/billingportal/session"
-
+    "github.com/google/uuid"
     "github.com/gofiber/fiber/v2"
     "google.golang.org/api/option"
+    firebase "firebase.google.com/go"
     "github.com/stripe/stripe-go/v74"
     "github.com/stripe/stripe-go/v74/webhook"
     "github.com/sacsand/gofiber-firebaseauth"
@@ -26,6 +24,7 @@ import (
     "github.com/gofiber/fiber/v2/middleware/monitor"
     "github.com/gofiber/fiber/v2/middleware/basicauth"
     "github.com/stripe/stripe-go/v74/checkout/session"
+    portalsession "github.com/stripe/stripe-go/v74/billingportal/session"
 )
 
 type APIKey struct {
@@ -243,6 +242,34 @@ func createWeeklyUsage(api_key string) *WeeklyUsage {
     return getWeeklyUsage(api_key)
 }
 
+func createAPIKey(uid string, free_credits int64, weekly_credit_limit int64, name string, origin string) error {
+    id := uuid.New()
+    api_key := id.String()
+    result, err := db.Exec(
+        "INSERT INTO " + 
+        "api_keys(api_key, disabled, free_credits_remaining, weekly_credit_limit, name, origin, uid) " + 
+        "VALUES($1, false, $2, $3, $4, $5, $6)",
+        api_key, free_credits, weekly_credit_limit, name, origin, uid,
+    )
+    if err != nil {
+        log.Print(err)
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        log.Print(err)
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in createAPIKey)")
+        return err
+    }
+
+    return nil
+}
+
 func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
     result, err := db.Exec(
         "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
@@ -259,6 +286,28 @@ func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
 
     if rowsAffected != 1 {
         err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in decreaseAPIKeyFreeUsage)")
+        return err
+    }
+
+    return nil
+}
+
+func updateUserReceivedFreeCredits(uid string, received_free_credits bool) error {
+    result, err := db.Exec(
+        "UPDATE users SET received_free_credits = $1 WHERE uid = $2",
+        received_free_credits, uid,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(uid + " -> ????? (0 or more than 1 row affected in updateUserReceivedFreeCredits)")
         return err
     }
 
@@ -425,7 +474,7 @@ func checkAPIKeyAndReturnOrigin(api_key string, endpoint string) (string /*origi
             return "", true
         }
     }
-    if apiKey.weekly_credit_limit != 0 && weeklyUsage.credits >= apiKey.weekly_credit_limit {
+    if apiKey.weekly_credit_limit != -1 && weeklyUsage.credits >= apiKey.weekly_credit_limit {
         return "", true
     }
 
@@ -636,15 +685,15 @@ func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
     user := getUser(uid)
     if user == nil {
-        c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching user"})
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
     }
     api_keys := getAPIKeysForUser(uid)
     if api_keys == nil {
-        c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching API keys"})
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching API keys"})
     }
     weekly_usages := getWeeklyUsagesForUser(uid)
     if weekly_usages == nil {
-        c.Status(500).JSON(fiber.Map{"message": "error ocurred when fetching weekly usage"})
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching weekly usage"})
     }
 
     usages := make(map[string]int64)
@@ -672,6 +721,68 @@ func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
             "has_active_stripe_subscription": user.has_active_stripe_subscription,
         },
         "api_keys": api_keys_populated,
+    });
+}
+
+// Field names should start with an uppercase letter
+type CreateAPIKeyArgs struct {
+    WeeklyCreditLimit int64 `json:"weekly_credit_limit"`
+    Name string `json:"name"`
+    Origin string `json:"origin"`
+}
+
+func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    user := getUser(uid)
+    if user == nil {
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+    }
+
+    args := new(CreateAPIKeyArgs)
+
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+    }
+
+    // check args.WeeklyCreditLimit
+    if args.WeeklyCreditLimit < -1 || args.WeeklyCreditLimit > 4200000 * 313337 {
+        return c.Status(500).JSON(fiber.Map{"message": "that's a funny-looking credit limit"})
+    }
+
+    // check args.Name
+    if len(args.Name) < 4 || len(args.Name) > 32 {
+        return c.Status(500).JSON(fiber.Map{"message": "name should be 4-32 chars long"})
+    }
+    
+    // check args.Origin
+    if len(args.Origin) < 1 || len(args.Origin) > 128 {
+        return c.Status(500).JSON(fiber.Map{"message": "origin should be 1-128 chars long"})
+    }
+
+    var freeUsage int64
+    freeUsage = 0
+    if !user.received_free_credits {
+        freeUsage = 4200000
+        err := updateUserReceivedFreeCredits(uid, true)
+        if err != nil {
+            return c.Status(500).JSON(fiber.Map{"message": "error ocurred while doing stuff"})
+        }
+    }
+
+    if !user.has_active_stripe_subscription && args.WeeklyCreditLimit > freeUsage {
+        return c.Status(500).JSON(fiber.Map{"message": "weekly credit limit can be free usage at most unless you subscribe to our service"})
+    }
+
+    err := createAPIKey(uid, freeUsage, args.WeeklyCreditLimit, args.Name, args.Origin)
+    if err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while creating API key"})
+    }
+
+
+    return c.JSON(fiber.Map{
+        "success": true,
     });
 }
 
@@ -784,6 +895,9 @@ func main() {
         return handleStripeUrlAPIRequest(c, stripe_price_id);
     })
     api.Get("/dashboard-data", handleDashboardDataAPIRequest)
+    api.Post("/api-key", handleCreateAPIKeyAPIRequest)
+
+    // app.Post("/test", handleCreateAPIKeyAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
