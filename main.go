@@ -7,6 +7,7 @@ import (
     "time"
     "bytes"
     "errors"
+    "strconv"
     "context"
     "net/http"
     "io/ioutil"
@@ -1205,12 +1206,29 @@ func main() {
         panic(err)
     }
 
+    max_idle_conns := os.Getenv("DB_MAX_IDLE_CONNS")
+    if max_idle_conns == "" {
+        panic("DB_MAX_IDLE_CONNS not set")
+    }
+    max_open_conns := os.Getenv("DB_MAX_OPEN_CONNS")
+    if max_open_conns == "" {
+        panic("DB_MAX_OPEN_CONNS not set")
+    }
+
+    max_idle_conns_i, err := strconv.Atoi(max_idle_conns)
+    if err != nil {
+        panic(err)
+    }
+    max_open_conns_i, err := strconv.Atoi(max_open_conns)
+    if err != nil {
+        panic(err)
+    }
     // Maximum Idle Connections
-    db.SetMaxIdleConns(10)
+    db.SetMaxIdleConns(max_idle_conns_i)
     // Maximum Open Connections
-    db.SetMaxOpenConns(20)
-    // Idle Connection Timeout
-    db.SetConnMaxIdleTime(1 * time.Second)
+    db.SetMaxOpenConns(max_open_conns_i)
+    // Idle Connection Timeout - no need!
+    // db.SetConnMaxIdleTime(1 * time.Second)
     // Connection Lifetime
     db.SetConnMaxLifetime(30 * time.Second)
 
