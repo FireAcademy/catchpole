@@ -97,6 +97,40 @@ func getAPIKey(api_key string) *APIKey {
     return apiKey
 }
 
+func getAPIKeysForUser(uid string) []*APIKey {
+    rows, err := db.Query("SELECT * FROM api_keys WHERE uid = $1", uid)
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+    defer rows.Close()
+
+    apiKeys := make([]*APIKey, 0)
+    for rows.Next() {
+        apiKey := new(APIKey)
+        err := rows.Scan(
+            &apiKey.api_key,
+            &apiKey.disabled,
+            &apiKey.free_credits_remaining,
+            &apiKey.weekly_limit,
+            &apiKey.name,
+            &apiKey.origin,
+            &apiKey.uid,
+        )
+        if err != nil {
+            log.Print(err)
+            return nil
+        }
+        apiKeys = append(apiKeys, apiKey)
+    }
+    if err = rows.Err(); err != nil {
+        log.Print(err)
+        return nil
+    }
+
+    return apiKeys
+}
+
 func getUser(uid string) *User {
     row := db.QueryRow("SELECT * FROM users WHERE uid = $1", uid)
 
