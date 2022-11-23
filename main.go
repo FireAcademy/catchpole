@@ -62,6 +62,11 @@ type GiftCode struct {
     uid sql.NullString
 }
 
+type GiftCodeAttempts struct {
+    uid string
+    fails int64
+}
+
 var db *sql.DB;
 
 func getWeekId() string {
@@ -192,6 +197,32 @@ func getUser(uid string) *User {
         return nil
     }
     return user
+}
+
+func getGiftCodeAttempts(uid string) *GiftCodeAttempts {
+    row := db.QueryRow("SELECT * FROM gift_code_attempts WHERE uid = $1", uid)
+
+    gca := new(GiftCodeAttempts)
+    err := row.Scan(
+        &gca.uid,
+        &gca.fails,
+    )
+    
+    if err == sql.ErrNoRows {
+        _, err = db.Exec(
+            "INSERT INTO gift_code_attempts(uid, fails) VALUES($1, 0)",
+            uid,
+        )
+        if err != nil {
+            return getGiftCodeAttempts(uid)
+        }
+    }
+
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+    return gca
 }
 
 func getGiftCode(code string) *GiftCode {
@@ -341,9 +372,9 @@ func decreaseAPIKeyFreeUsage(api_key string, credits uint64) error {
     return nil
 }
 
-func useGiftCode(api_key string, code uint64) error {
+func increaseAPIKeyFreeUsage(api_key string, credits int64) error {
     result, err := db.Exec(
-        "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
+        "UPDATE api_keys SET free_credits_remaining = free_credits_remaining + $1 WHERE api_key = $2",
         credits, api_key,
     )
     if err != nil {
@@ -356,7 +387,51 @@ func useGiftCode(api_key string, code uint64) error {
     }
 
     if rowsAffected != 1 {
-        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in decreaseAPIKeyFreeUsage)")
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in increaseAPIKeyFreeUsage)")
+        return err
+    }
+
+    return nil
+}
+
+func markGiftCodeAsUsed(code string, uid string) error {
+    result, err := db.Exec(
+        "UPDATE gift_codes SET used = true, uid = $1 WHERE code = $2 AND used = false",
+        uid, code,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(code + ":" + uid + " -> ????? (0 or more than 1 row affected in markGiftCodeAsUsed)")
+        return err
+    }
+
+    return nil
+}
+
+func increaseGiftCodeAttempts(uid string) error {
+    result, err := db.Exec(
+        "UPDATE gift_code_attempts SET fails = fails + 1 WHERE uid = $1",
+        uid,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(uid + " -> ????? (0 or more than 1 row affected in increaseGiftCodeAttempts)")
         return err
     }
 
@@ -955,9 +1030,8 @@ type GenerateGiftCodesArgs struct {
 }
 
 func handleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
-    // user := c.Locals("user").(gofiberfirebaseauth.User)
-    // email := user.Email
-    email := "y@kuhi.to"
+    user := c.Locals("user").(gofiberfirebaseauth.User)
+    email := user.Email
 
     if email != "y@kuhi.to" {
         return c.Status(500).JSON(fiber.Map{"message": "only yakuhito can access this endpoint!"})
@@ -989,6 +1063,60 @@ func handleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
         "success": true,
         "gift_codes": gift_codes,
     });
+}
+
+type UseGiftCodeArgs struct {
+    Code string `json:"code"`
+    APIKey string `json:"api_key"`
+}
+
+func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    user := getUser(uid)
+    if user == nil {
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+    }
+
+    giftCodeAttempts := getGiftCodeAttempts(uid)
+    if giftCodeAttempts.fails >= 42 {
+        return c.Status(500).JSON(fiber.Map{"message": "You've been blocked after claiming invalid gift codes for too many times. Contact the admin to be unhammered."})
+    }
+
+    args := new(UseGiftCodeArgs)
+
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+    }
+
+    if len(args.Code) != 36 || len(args.APIKey) != 36 {
+        return c.Status(500).JSON(fiber.Map{"message": "incorrect input"})
+    }
+
+    apiKey := getAPIKey(args.APIKey)
+    if apiKey == nil || apiKey.uid != uid {
+        return c.Status(500).JSON(fiber.Map{"message": "unknown API key"})
+    }
+
+    giftCode := getGiftCode(args.Code)
+    if giftCode == nil || giftCode.used {
+        increaseGiftCodeAttempts(uid);
+        return c.Status(500).JSON(fiber.Map{"message": "invalid gift code"})
+    }
+
+    err := markGiftCodeAsUsed(args.Code, uid)
+    if err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error while processing gift code"})
+    }
+
+    err = increaseAPIKeyFreeUsage(args.APIKey, giftCode.credits)
+    if err != nil {
+        log.Print(err)
+        return c.Status(500).JSON(fiber.Map{"message": "error while updating API key free credits"})
+    }
+    
+    return c.JSON(fiber.Map{"success": true})
 }
 
 func main() {
@@ -1103,8 +1231,7 @@ func main() {
     api.Post("/api-key", handleCreateAPIKeyAPIRequest)
     api.Put("/api-key", handleUpdateAPIKeyAPIRequest)
     api.Post("/generate-gift-codes", handleGenerateGiftCodesAPIRequest)
-
-    app.Post("/test", handleGenerateGiftCodesAPIRequest)
+    api.Post("/gift-code", handleUseGiftCodeAPIRequest)
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
