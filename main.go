@@ -1253,32 +1253,29 @@ func stripeBillRoutine() {
     }
 }
 
-func main() {
-   app := fiber.New()
-   port := os.Getenv("TAXMAN_PORT")
+func getPort() string {
+    port := os.Getenv("TAXMAN_PORT")
    if port == "" {
        port = "5000"
    }
 
-   // Leaflet host & port
-   leaflet_host := os.Getenv("LEAFLET_HOST")
-   if leaflet_host == "" {
-       leaflet_host = "leaflet"
-   }
-   leaflet_port := os.Getenv("LEAFLET_PORT")
-   if leaflet_port == "" {
-       leaflet_port = "18444"
-   }
-   leaflet_base_url = fmt.Sprintf("http://%s:%s", leaflet_host, leaflet_port)
-   fmt.Printf("Leaflet at %s\n", leaflet_base_url)
+   return port
+}
 
+func setupLeafletBaseUrl() {
+    leaflet_host := os.Getenv("LEAFLET_HOST")
+    if leaflet_host == "" {
+        leaflet_host = "leaflet"
+    }
+    leaflet_port := os.Getenv("LEAFLET_PORT")
+    if leaflet_port == "" {
+        leaflet_port = "18444"
+    }
+    leaflet_base_url = fmt.Sprintf("http://%s:%s", leaflet_host, leaflet_port)
+    fmt.Printf("Leaflet at %s\n", leaflet_base_url)
+}
 
-    // Index
-    app.Get("/", func(c *fiber.Ctx) error {
-        return c.SendString("Taxman is alive and well.")
-    })
-
-    // DB
+func setupDB() {
     db_conn_string := os.Getenv("DB_CONN_STRING")
     if db_conn_string == "" {
         fmt.Printf("DB_CONN_STRING not specified, exiting :(\n")
@@ -1289,7 +1286,6 @@ func main() {
     if err != nil {
         panic(err)
     }
-    defer db.Close()
 
     err = db.Ping()
     if err != nil {
@@ -1321,14 +1317,16 @@ func main() {
     // db.SetConnMaxIdleTime(1 * time.Second)
     // Connection Lifetime
     db.SetConnMaxLifetime(30 * time.Second)
+}
 
-    // Leaflet
+func setupLeafletRoutes(app *fiber.App) {
     app.Get("/leaflet/:endpoint", leafletHandler)
     app.Post("/leaflet/:endpoint", leafletHandler)
     app.Get("/:api_key<guid>/leaflet/:endpoint", leafletHandler)
     app.Post("/:api_key<guid>/leaflet/:endpoint", leafletHandler)
+}
 
-    // Stripe webhook
+func setupStripeWebhook(app *fiber.App) {
     stripe_token := os.Getenv("STRIPE_SECRET_KEY")
     if stripe_token == "" {
         fmt.Printf("STRIPE_SECRET_KEY not set - this might be very bad\n")
@@ -1336,13 +1334,13 @@ func main() {
         stripe.Key = stripe_token
     }
     app.Post("/stripe/webhook", stripeWebhook)
+}
 
-    // Metrics
+func setupAdminRoutes(app *fiber.App) {
     // admin group (routes) are protected by password
     admin_password := os.Getenv("TAXMAN_ADMIN_PASSWORD")
     if admin_password == "" {
-        fmt.Printf("WARNING! Using 'yakuhito' as the admin password since 'TAXMAN_ADMIN_PASSWORD' is not set.\n")
-        admin_password = "yakuhito"
+        panic("TAXMAN_ADMIN_PASSWORD not set, ser")
     }
     admin := app.Group("/admin")
     admin.Use(basicauth.New(basicauth.Config{
@@ -1351,8 +1349,9 @@ func main() {
         },
     }))
     admin.Get("/", monitor.New(monitor.Config{Title: "Taxman - Metrics"}))
+}
 
-    // Dashboard API
+func setupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
         log.Fatalf("Firebase credentials not found in FIREBASE_ADMIN_CREDS")
@@ -1383,9 +1382,25 @@ func main() {
     api.Put("/api-key", handleUpdateAPIKeyAPIRequest)
     api.Post("/generate-gift-codes", handleGenerateGiftCodesAPIRequest)
     api.Post("/gift-code", handleUseGiftCodeAPIRequest)
+}
+
+func main() {
+    app := fiber.New()
+    port := getPort()
+
+    app.Get("/", func(c *fiber.Ctx) error {
+        return c.SendString("Taxman is alive and well.")
+    })
+
+    setupDB()
+    setupLeafletBaseUrl()
+
+    setupLeafletRoutes(app)
+    setupStripeWebhook(app)
+    setupAdminRoutes(app)
+    setupDashboardAPIRoutes(app)
 
     go stripeBillRoutine()
 
-    // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
 }
