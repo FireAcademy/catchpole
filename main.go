@@ -826,6 +826,12 @@ func stripeWebhook(c *fiber.Ctx) error {
 
     switch event.Type {
         case "checkout.session.completed":
+            if event.Data.Object["mode"].(string) != "subscription" {
+                log.Print("skipping checkout.session.completed since mode is not 'subscription'")
+                log.Print("mode is: " + event.Data.Object["mode"].(string))
+                log.Print(event)
+                break
+            }
             customerId := event.Data.Object["customer"].(string)
             subscriptionId := event.Data.Object["subscription"].(string)
             s, _ := subscription.Get(subscriptionId, nil)
