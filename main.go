@@ -21,6 +21,7 @@ import (
     "github.com/stripe/stripe-go/v74/webhook"
     "github.com/sacsand/gofiber-firebaseauth"
     "github.com/stripe/stripe-go/v74/customer"
+    "github.com/stripe/stripe-go/v74/usagerecord"
     "github.com/stripe/stripe-go/v74/subscription"
     "github.com/gofiber/fiber/v2/middleware/monitor"
     "github.com/gofiber/fiber/v2/middleware/basicauth"
@@ -134,6 +135,66 @@ func getAPIKeysForUser(uid string) []*APIKey {
     }
 
     return apiKeys
+}
+
+func decreaseCreditsToBill(api_key string, credits int64) error {
+    result, err := db.Exec(
+        "UPDATE credits_to_bill SET credits = credits - $1 WHERE api_key = $2",
+        credits, api_key,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        err = errors.New(api_key + " -> ????? (0 or more than 1 row affected in decreaseCreditsToBill)")
+        return err
+    }
+
+    return nil
+}
+
+// returns (stripe_item_id, credits)
+func getUserBillingInfo() (string, int64) {
+    row := db.QueryRow("SELECT " + 
+        "credits_to_bill.credits, credits_to_bill.api_key, users.stripe_item_id " + 
+        "FROM credits_to_bill " + 
+        "JOIN users" +
+        " ON users.uid = credits_to_bill.uid" + 
+        " AND credits_to_bill.credits > 0" + 
+        " AND users.has_active_stripe_subscription = true " +
+        "LIMIT 1",
+    )
+    var credits int64
+    var apiKey string
+    var stripeItemId string
+
+    err := row.Scan(
+        &credits,
+        &apiKey,
+        &stripeItemId,
+    )
+
+    if err == sql.ErrNoRows {
+        return "", 0
+    }
+    if err != nil {
+        log.Print(err)
+        return "", 0
+    }
+
+    err = decreaseCreditsToBill(apiKey, credits)
+    if err != nil {
+        log.Print(err)
+        return "", 0
+    }
+
+    return stripeItemId, credits
 }
 
 func getWeeklyUsagesForUser(uid string) []*WeeklyUsage {
@@ -1163,6 +1224,30 @@ func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
     return c.JSON(fiber.Map{"success": true})
 }
 
+func billEveryone() {
+    itemId, credits := getUserBillingInfo()
+    for itemId != "" {
+        params := &stripe.UsageRecordParams{
+            SubscriptionItem: stripe.String(itemId),
+            Quantity: stripe.Int64(credits),
+            Timestamp: stripe.Int64(time.Now().Unix()),
+            Action: stripe.String(string(stripe.UsageRecordActionSet)),
+        }
+
+        usagerecord.New(params)
+
+        itemId, credits = getUserBillingInfo()
+    }
+}
+
+func stripeBillRoutine() {
+    time.Sleep(10 * time.Second) // allow everything to boot up
+    for true {
+        billEveryone()
+        time.Sleep(5 * time.Minute)
+    }
+}
+
 func main() {
    app := fiber.New()
    port := os.Getenv("TAXMAN_PORT")
@@ -1302,6 +1387,8 @@ func main() {
     api.Put("/api-key", handleUpdateAPIKeyAPIRequest)
     api.Post("/generate-gift-codes", handleGenerateGiftCodesAPIRequest)
     api.Post("/gift-code", handleUseGiftCodeAPIRequest)
+
+    go stripeBillRoutine()
 
     // Start server
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
