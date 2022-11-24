@@ -1,14 +1,11 @@
-FROM golang:1.16-alpine
+FROM golang:alpine
 
 WORKDIR /catchpole
 
-COPY go.mod ./
-COPY go.sum ./
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
 
-RUN go mod download
+COPY . .
+RUN go build -v -o /usr/local/bin/app .
 
-COPY *.go ./
-
-RUN go build -o /catchpole
-
-CMD [ "/catchpole" ]
+CMD ["app"]
