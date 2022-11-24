@@ -787,7 +787,7 @@ func leafletHandler(c *fiber.Ctx) error {
     const CREDITS_PER_REQUEST = 420
     origin, errored := taxTrafficAndReturnOrigin(api_key, CREDITS_PER_REQUEST)
     if errored {
-        return c.Status(401).SendString("Taxman has blocked this request.")
+        return c.Status(401).SendString("Catchpole has blocked this request.")
     }
     c.Set("Access-Control-Allow-Origin", origin)
 
@@ -1254,7 +1254,7 @@ func stripeBillRoutine() {
 }
 
 func getPort() string {
-    port := os.Getenv("TAXMAN_PORT")
+    port := os.Getenv("CATCHPOLE_PORT")
    if port == "" {
        port = "5000"
    }
@@ -1338,17 +1338,17 @@ func setupStripeWebhook(app *fiber.App) {
 
 func setupAdminRoutes(app *fiber.App) {
     // admin group (routes) are protected by password
-    admin_password := os.Getenv("TAXMAN_ADMIN_PASSWORD")
+    admin_password := os.Getenv("CATCHPOLE_ADMIN_PASSWORD")
     if admin_password == "" {
-        panic("TAXMAN_ADMIN_PASSWORD not set, ser")
+        panic("CATCHPOLE_ADMIN_PASSWORD not set, ser")
     }
     admin := app.Group("/admin")
     admin.Use(basicauth.New(basicauth.Config{
         Users: map[string]string{
-            "taxman":  admin_password,
+            "catchpole":  admin_password,
         },
     }))
-    admin.Get("/", monitor.New(monitor.Config{Title: "Taxman - Metrics"}))
+    admin.Get("/", monitor.New(monitor.Config{Title: "Catchpole - Metrics"}))
 }
 
 func setupDashboardAPIRoutes(app *fiber.App) {
@@ -1389,7 +1389,7 @@ func main() {
     port := getPort()
 
     app.Get("/", func(c *fiber.Ctx) error {
-        return c.SendString("Taxman is alive and well.")
+        return c.SendString("Catchpole is alive and well.")
     })
 
     setupDB()
