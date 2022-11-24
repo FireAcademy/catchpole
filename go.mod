@@ -1,4 +1,4 @@
-module fireacademy/taxman
+module fireacademy/catchpole
 
 go 1.18
 
