@@ -33,5 +33,5 @@ func main() {
 
     go stripeBillRoutine()
 
-    log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
+    log.Fatalln(app.Listen(fmt.Sprintf("0.0.0.0:%v", port)))
 }
