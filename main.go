@@ -8,7 +8,7 @@ import (
 )
 
 func getPort() string {
-    port := os.Getenv("CATCHPOLE_PORT")
+    port := os.Getenv("CATCHPOLE_LISTEN_PORT")
    if port == "" {
        port = "5000"
    }
@@ -33,5 +33,5 @@ func main() {
 
     go stripeBillRoutine()
 
-    log.Fatalln(app.Listen(fmt.Sprintf("0.0.0.0:%v", port)))
+    log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
 }
