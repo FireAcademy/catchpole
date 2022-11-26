@@ -21,6 +21,9 @@ func taxTrafficAndReturnOrigin(api_key string, credits_per_request int64) (strin
     if apiKey.weekly_credit_limit != 0 && weeklyUsage.credits + credits_per_request > apiKey.weekly_credit_limit {
         return "", true
     }
+    if apiKey.weekly_credit_limit == 0 && weeklyUsage.credits == 0 && apiKey.free_credits_remaining < credits_per_request && !getUser(apiKey.uid).has_active_stripe_subscription {
+        return "", true
+    }
 
     err := increaseWeeklyUsage(api_key, credits_per_request)
     if err != nil {
