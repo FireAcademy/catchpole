@@ -52,7 +52,6 @@ func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
         params.LineItems = []*stripe.CheckoutSessionLineItemParams{
             &stripe.CheckoutSessionLineItemParams{
                 Price: stripe.String(price_id),
-                Quantity: stripe.Int64(1),
             },
         }
         s, _ := session.New(params)
