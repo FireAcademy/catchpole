@@ -5,6 +5,7 @@ import (
     "fmt"
     "log"
     "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/fiber/v2/middleware/cors"
 )
 
 func getPort() string {
@@ -20,6 +21,7 @@ func main() {
     app := fiber.New()
     port := getPort()
 
+    app.Use(cors.New())
     app.Get("/", func(c *fiber.Ctx) error {
         return c.SendString("Catchpole is alive and well.")
     })
