@@ -135,7 +135,7 @@ func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
     }
 
     // check args.WeeklyCreditLimit
-    if args.WeeklyCreditLimit < -1 || args.WeeklyCreditLimit > 4200000 * 313337 {
+    if args.WeeklyCreditLimit < 0 || args.WeeklyCreditLimit > 4200000 * 313337 {
         return c.Status(500).JSON(fiber.Map{"message": "that's a funny-looking credit limit"})
     }
 
@@ -207,7 +207,7 @@ func handleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     }
 
     // check args.WeeklyCreditLimit
-    if args.WeeklyCreditLimit < -1 || args.WeeklyCreditLimit > 4200000 * 313337 {
+    if args.WeeklyCreditLimit < 0 || args.WeeklyCreditLimit > 4200000 * 313337 {
         return c.Status(500).JSON(fiber.Map{"message": "that's a funny-looking credit limit"})
     }
 
