@@ -12,7 +12,7 @@ import (
     "github.com/google/uuid"
 )
 
-var DB *sql.DB;
+var DB *sql.DB
 
 func getWeekId() string {
     // https://stackoverflow.com/questions/47193649/week-number-based-on-timestamp-with-go
@@ -44,6 +44,43 @@ func getAPIKey(api_key string) *APIKey {
         return nil
     }
     return apiKey
+}
+
+func getAPIKeyAndSubscribed(api_key string) (*APIKey, bool) {
+    row := DB.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
+
+    apiKey := new(APIKey)
+    err := row.Scan(
+        &apiKey.api_key,
+        &apiKey.disabled,
+        &apiKey.free_credits_remaining,
+        &apiKey.weekly_credit_limit,
+        &apiKey.name,
+        &apiKey.origin,
+        &apiKey.uid,
+    )
+
+    if err == sql.ErrNoRows {
+        return nil, false
+    }
+    if err != nil {
+        log.Print(err)
+        return nil, false
+    }
+
+    row = DB.QueryRow("SELECT has_active_stripe_subscription FROM users WHERE uid = $1", apiKey.uid)
+
+    var subscribed bool
+    err = row.Scan(&subscribed)
+
+    if err == sql.ErrNoRows {
+        return nil, false
+    }
+    if err != nil {
+        log.Print(err)
+        return nil, false
+    }
+    return apiKey, subscribed
 }
 
 func getAPIKeysForUser(uid string) []*APIKey {
@@ -273,18 +310,21 @@ func getWeeklyUsage(api_key string) *WeeklyUsage {
     return weeklyUsage
 }
 
-func getAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage) {
+func getAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage, bool) {
     week_id := getWeekId()
     row := DB.QueryRow("SELECT " + 
         "weekly_usage.id, weekly_usage.api_key, weekly_usage.credits, weekly_usage.week, " +
-        "api_keys.api_key, api_keys.disabled, api_keys.free_credits_remaining, api_keys.weekly_credit_limit, api_keys.name, api_keys.origin, api_keys.uid " +
-        "FROM weekly_usage LEFT JOIN api_keys " + 
-        "ON api_keys.api_key = weekly_usage.api_key " + 
-        "AND weekly_usage.api_key = $1 " + 
-        "AND weekly_usage.week = $2", api_key, week_id)
+        "api_keys.api_key, api_keys.disabled, api_keys.free_credits_remaining, api_keys.weekly_credit_limit, api_keys.name, api_keys.origin, api_keys.uid, " +
+        "users.has_active_stripe_subscription " + 
+        "FROM weekly_usage LEFT JOIN api_keys" + 
+        " ON api_keys.api_key = weekly_usage.api_key" + 
+        " AND weekly_usage.api_key = $1" + 
+        " AND weekly_usage.week = $2 " +
+        "LEFT JOIN users WHERE api_keys.uid = users.uid", api_key, week_id)
 
     weeklyUsage := new(WeeklyUsage)
     apiKey := new(APIKey)
+    var subscribed bool
     err := row.Scan(
         &weeklyUsage.id,
         &weeklyUsage.api_key,
@@ -297,14 +337,15 @@ func getAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage) {
         &apiKey.name,
         &apiKey.origin,
         &apiKey.uid,
+        &subscribed,
     )
     if err == sql.ErrNoRows {
-        return nil, nil
+        return nil, nil, false
     } else if err != nil {
-        return nil, nil
+        return nil, nil, false
     }
 
-    return apiKey, weeklyUsage
+    return apiKey, weeklyUsage, subscribed
 }
 
 func createWeeklyUsage(api_key string) *WeeklyUsage {

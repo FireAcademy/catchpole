@@ -12,18 +12,6 @@ import (
 
 var leaflet_base_url string
 
-func getAPIKeyForRequest(c *fiber.Ctx) string {
-    api_key := c.Params("api_key")
-    if api_key == "" {
-        api_key = c.Get("X-API-Key")
-    }
-    if api_key == "" {
-        api_key = c.Query("api-key")
-    }
-
-    return api_key
-}
-
 func leafletHandler(c *fiber.Ctx) error {
     api_key := getAPIKeyForRequest(c)
     if api_key == "" {
