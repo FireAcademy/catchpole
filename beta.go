@@ -16,7 +16,7 @@ const BETA_CREDITS_PER_RESULT = 42
 const BETA_MAX_RESULTS = 100
 
 type BetaResponse struct {
-    Results int `json:"results"`
+    Results int64 `json:"results"`
 }
 
 func BetaHandler(c *fiber.Ctx) error {
@@ -48,10 +48,11 @@ func BetaHandler(c *fiber.Ctx) error {
     }
 
     // tax traffic
-    billed_results := 1
+    var billed_results int64
+    billed_results = 1
 
-    betaResponse = new(BetaResponse)
-    err := json.NewDecoder(body).Decode(&betaResponse)
+    betaResponse := new(BetaResponse)
+    err = json.NewDecoder(resp.Body).Decode(&betaResponse)
     if err != nil {
         return MakeErrorResponse(c, "Beta: error ocurred when decoding response")
     } else {
@@ -59,9 +60,11 @@ func BetaHandler(c *fiber.Ctx) error {
             billed_results = betaResponse.Results
         }
     }
-    TaxTraffic(apiKey, subscribed, billed_results * BETA_CREDITS_PER_RESULT)
+    TaxTraffic(apiKey, subscribed, billed_results * int64(BETA_CREDITS_PER_RESULT))
     
-    return c.Set("Content-Type", "application/json").SendString(string(body))
+    // send response
+    c.Set("Content-Type", "application/json")
+    return c.SendString(string(body))
 }
 
 func SetupBetaBaseUrl() {
