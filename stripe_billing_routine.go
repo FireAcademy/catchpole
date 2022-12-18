@@ -7,7 +7,7 @@ import (
 )
 
 func BillEveryone() {
-    itemId, credits := getUserBillingInfo()
+    itemId, credits := GetUserBillingInfo()
     for itemId != "" {
         params := &stripe.UsageRecordParams{
             SubscriptionItem: stripe.String(itemId),
@@ -18,7 +18,7 @@ func BillEveryone() {
 
         usagerecord.New(params)
 
-        itemId, credits = getUserBillingInfo()
+        itemId, credits = GetUserBillingInfo()
     }
 }
 

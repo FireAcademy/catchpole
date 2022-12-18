@@ -35,7 +35,7 @@ func HandleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
             params.AddMetadata("uid", uid)
             c, _ := customer.New(params)
 
-            err := updateUserStripeId(uid, c.ID)
+            err := UpdateUserStripeId(uid, c.ID)
             if err != nil {
                 return err
             }
@@ -75,11 +75,11 @@ func HandleDashboardDataAPIRequest(c *fiber.Ctx) error {
     if user == nil {
         return MakeErrorResponse(c, "error ocurred while fetching user")
     }
-    api_keys := getAPIKeysForUser(uid)
+    api_keys := GetAPIKeysForUser(uid)
     if api_keys == nil {
         return MakeErrorResponse(c, "error ocurred while fetching API keys")
     }
-    weekly_usages := getWeeklyUsagesForUser(uid)
+    weekly_usages := GetWeeklyUsagesForUser(uid)
     if weekly_usages == nil {
         return MakeErrorResponse(c, "error ocurred while fetching weekly usage")
     }
@@ -200,7 +200,7 @@ func HandleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     if len(args.ApiKey) != 36 {
         return MakeErrorResponse(c, "invalid API key provided")
     }
-    currentApiKey := getAPIKey(args.ApiKey)
+    currentApiKey := GetAPIKey(args.ApiKey)
     if currentApiKey == nil || currentApiKey.uid != uid {
         return MakeErrorResponse(c, "invalid API key provided")
     }
@@ -228,7 +228,7 @@ func HandleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     // check args.Disabled
     // no checks required!
 
-    err := updateAPIKey(args.ApiKey, args.Disabled, args.WeeklyCreditLimit, args.Name, args.Origin)
+    err := UpdateAPIKey(args.ApiKey, args.Disabled, args.WeeklyCreditLimit, args.Name, args.Origin)
     if err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error ocurred while updating API key")
@@ -315,7 +315,7 @@ func HandleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
 
     giftCode := GetGiftCode(args.Code)
     if giftCode == nil || giftCode.used {
-        increaseGiftCodeAttempts(uid)
+        IncreaseGiftCodeAttempts(uid)
         return MakeErrorResponse(c, "invalid gift code")
     }
 
@@ -345,7 +345,7 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
         option.WithCredentialsJSON([]byte(fbcreds)),
     )
     if err != nil {
-        panic("error initializing Firebase app: %v\n", err)
+        panic("error initializing Firebase app: " + err.Error())
     }
 
     api := app.Group("/api")

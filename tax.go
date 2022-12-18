@@ -17,7 +17,7 @@ func GetAPIKeyForRequest(c *fiber.Ctx) string {
     return api_key
 }
 
-func CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key string, max_credits int64) (APIKey /*api_key*/, bool /* subscribed */, bool /*errored*/) {
+func CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key string, max_credits int64) (*APIKey /*apiKey*/, bool /* subscribed */, bool /*errored*/) {
     // get data
     apiKey, weeklyUsage, subscribed := GetAPIKeyAndWeeklyUsage(api_key)
 
@@ -45,7 +45,7 @@ func CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key string, max_credits int64) 
     return apiKey, subscribed, false
 }
 
-func TaxTraffic(apiKey APIKey, subscribed bool, credits int64) bool /* errored */ {
+func TaxTraffic(apiKey *APIKey, subscribed bool, credits int64) bool /* errored */ {
     if apiKey.free_credits_remaining >= credits {
         if err := DecreaseAPIKeyFreeUsage(apiKey.api_key, credits); err != nil {
             log.Print(err)
@@ -59,7 +59,7 @@ func TaxTraffic(apiKey APIKey, subscribed bool, credits int64) bool /* errored *
         BillCredits(apiKey.api_key, apiKey.uid, credits)
     }
 
-    err := IncreaseWeeklyUsage(api_key, credits)
+    err := IncreaseWeeklyUsage(apiKey.api_key, credits)
     if err != nil {
         log.Print(err)
         return true
@@ -74,7 +74,7 @@ func LeafletTaxTrafficAndReturnOrigin(api_key string, credits_per_request int64)
         return "", true
     }
 
-    error2 := TaxTraffic(apiKey, subscribed)
+    error2 := TaxTraffic(apiKey, subscribed, credits_per_request)
 
     return apiKey.origin, error2
 } 

@@ -168,7 +168,7 @@ func GetUserBillingInfo() (string, int64) {
         return "", 0
     }
 
-    err = decreaseCreditsToBill(apiKey, credits)
+    err = DecreaseCreditsToBill(apiKey, credits)
     if err != nil {
         log.Print(err)
         return "", 0
@@ -178,7 +178,7 @@ func GetUserBillingInfo() (string, int64) {
 }
 
 func GetWeeklyUsagesForUser(uid string) []*WeeklyUsage {
-    week_id := getWeekId()
+    week_id := GetWeekId()
     rows, err := DB.Query("SELECT * FROM weekly_usage WHERE week = $1 AND api_key IN (SELECT api_key FROM api_keys WHERE uid = $2)", week_id, uid)
     if err != nil {
         log.Print(err)
