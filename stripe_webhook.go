@@ -15,13 +15,13 @@ func stripeWebhook(c *fiber.Ctx) error {
     stripe_webhook_secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
     if stripe_webhook_secret == "" {
         fmt.Printf("STRIPE_WEBHOOK_SECRET not specified - this is BAD!")
-        return c.Status(500).SendString("not ok ser")
+        return MakeErrorResponse(c, "not ok ser")
     }
 
     event, err := webhook.ConstructEvent(c.Body(), c.Get("Stripe-Signature"), stripe_webhook_secret)
     if err != nil {
         log.Print(err)
-        return c.Status(400).SendString("not ok ser")
+        return MakeUnauthorizedResponse(c, "not ok ser")
     }
 
     switch event.Type {
@@ -44,13 +44,13 @@ func stripeWebhook(c *fiber.Ctx) error {
             customer, err := customer.Get(customerId, nil)
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #1 ser")
+                return MakeErrorResponse(c, "error #1 ser")
             }
             uid := customer.Metadata["uid"]
             err = updateCustomerBillingDetails(uid, true, customerId, itemId, subscriptionId, productId, priceId)
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #2 ser")
+                return MakeErrorResponse(c, "error #2 ser")
             }
             break;
         case "invoice.paid":
@@ -59,7 +59,7 @@ func stripeWebhook(c *fiber.Ctx) error {
             err := updateCustomerActiveSubscription(customerId, true);
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error ser")
+                return MakeErrorResponse(c, "error ser")
             }
             break;
         case "invoice.payment_failed":
@@ -67,20 +67,20 @@ func stripeWebhook(c *fiber.Ctx) error {
             customer, err := customer.Get(customerId, nil)
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #1 ser")
+                return MakeErrorResponse(c, "error #1 ser")
             }
             uid := customer.Metadata["uid"]
 
             err = updateCustomerActiveSubscription(customerId, false);
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #2 ser")
+                return MakeErrorResponse(c, "error #2 ser")
             }
 
             err = revokeAPIKeys(uid);
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #3 ser")
+                return MakeErrorResponse(c, "error #3 ser")
             }
             break;
         case "customer.subscription.deleted":
@@ -88,20 +88,20 @@ func stripeWebhook(c *fiber.Ctx) error {
             customer, err := customer.Get(customerId, nil)
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #1 ser")
+                return MakeErrorResponse(c, "error #1 ser")
             }
             uid := customer.Metadata["uid"]
             
             err = updateCustomerBillingDetails(uid, false, customerId, "", "", "", "")
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #2 ser")
+                return MakeErrorResponse(c, "error #2 ser")
             }
 
             err = revokeAPIKeys(uid);
             if err != nil {
                 log.Print(err);
-                return c.Status(500).SendString("error #3 ser")
+                return MakeErrorResponse(c, "error #3 ser")
             }
             break;
         default:

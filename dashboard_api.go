@@ -73,15 +73,15 @@ func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
     user := getUser(uid)
     if user == nil {
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+        return MakeErrorResponse(c, "error ocurred while fetching user")
     }
     api_keys := getAPIKeysForUser(uid)
     if api_keys == nil {
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching API keys"})
+        return MakeErrorResponse(c, "error ocurred while fetching API keys")
     }
     weekly_usages := getWeeklyUsagesForUser(uid)
     if weekly_usages == nil {
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching weekly usage"})
+        return MakeErrorResponse(c, "error ocurred while fetching weekly usage")
     }
 
     usages := make(map[string]int64)
@@ -123,29 +123,29 @@ func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
     user := getUser(uid)
     if user == nil {
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+        return MakeErrorResponse(c, "error ocurred while fetching user")
     }
 
     args := new(CreateAPIKeyArgs)
 
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
     }
 
     // check args.WeeklyCreditLimit
     if args.WeeklyCreditLimit < 0 || args.WeeklyCreditLimit > 4200000 * 313337 {
-        return c.Status(500).JSON(fiber.Map{"message": "that's a funny-looking credit limit"})
+        return MakeErrorResponse(c, "that's a funny-looking credit limit")
     }
 
     // check args.Name
     if len(args.Name) < 4 || len(args.Name) > 32 {
-        return c.Status(500).JSON(fiber.Map{"message": "name should be 4-32 chars long"})
+        return MakeErrorResponse(c, "name should be 4-32 chars long")
     }
     
     // check args.Origin
     if len(args.Origin) < 1 || len(args.Origin) > 128 {
-        return c.Status(500).JSON(fiber.Map{"message": "origin should be 1-128 chars long"})
+        return MakeErrorResponse(c, "origin should be 1-128 chars long")
     }
 
     var freeUsage int64
@@ -154,18 +154,18 @@ func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
         freeUsage = 4200000
         err := updateUserReceivedFreeCredits(uid, true)
         if err != nil {
-            return c.Status(500).JSON(fiber.Map{"message": "error ocurred while doing stuff"})
+            return MakeErrorResponse(c, "error ocurred while doing stuff")
         }
     }
 
     if !user.has_active_stripe_subscription && args.WeeklyCreditLimit > freeUsage {
-        return c.Status(500).JSON(fiber.Map{"message": "weekly credit limit can be free usage at most unless you subscribe to our service"})
+        return MakeErrorResponse(c, "weekly credit limit can be free usage at most unless you subscribe to our service")
     }
 
     err := createAPIKey(uid, freeUsage, args.WeeklyCreditLimit, args.Name, args.Origin)
     if err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while creating API key"})
+        return MakeErrorResponse(c, "error ocurred while creating API key")
     }
 
 
@@ -186,43 +186,43 @@ func handleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
     user := getUser(uid)
     if user == nil {
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+        return MakeErrorResponse(c, "error ocurred while fetching user")
     }
 
     args := new(UpdateAPIKeyArgs)
 
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
     }
 
     // check args.ApiKey
     if len(args.ApiKey) != 36 {
-        return c.Status(500).JSON(fiber.Map{"message": "invalid API key provided"})
+        return MakeErrorResponse(c, "invalid API key provided")
     }
     currentApiKey := getAPIKey(args.ApiKey)
     if currentApiKey == nil || currentApiKey.uid != uid {
-        return c.Status(500).JSON(fiber.Map{"message": "invalid API key provided"})
+        return MakeErrorResponse(c, "invalid API key provided")
     }
 
     // check args.WeeklyCreditLimit
     if args.WeeklyCreditLimit < 0 || args.WeeklyCreditLimit > 4200000 * 313337 {
-        return c.Status(500).JSON(fiber.Map{"message": "that's a funny-looking credit limit"})
+        return MakeErrorResponse(c, "that's a funny-looking credit limit")
     }
 
     // check args.Name
     if len(args.Name) < 4 || len(args.Name) > 32 {
-        return c.Status(500).JSON(fiber.Map{"message": "name should be 4-32 chars long"})
+        return MakeErrorResponse(c, "name should be 4-32 chars long")
     }
     
     // check args.Origin
     if len(args.Origin) < 1 || len(args.Origin) > 128 {
-        return c.Status(500).JSON(fiber.Map{"message": "origin should be 1-128 chars long"})
+        return MakeErrorResponse(c, "origin should be 1-128 chars long")
     }
 
     // check args.WeeklyCreditLimit
     if !user.has_active_stripe_subscription && args.WeeklyCreditLimit > currentApiKey.free_credits_remaining {
-        return c.Status(500).JSON(fiber.Map{"message": "weekly credit limit can be free usage at most unless you subscribe to our service"})
+        return MakeErrorResponse(c, "weekly credit limit can be free usage at most unless you subscribe to our service")
     }
 
     // check args.Disabled
@@ -231,7 +231,7 @@ func handleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     err := updateAPIKey(args.ApiKey, args.Disabled, args.WeeklyCreditLimit, args.Name, args.Origin)
     if err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while updating API key"})
+        return MakeErrorResponse(c, "error ocurred while updating API key")
     }
 
     return c.JSON(fiber.Map{
@@ -249,18 +249,18 @@ func handleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
     email := user.Email
 
     if email != "y@kuhi.to" {
-        return c.Status(500).JSON(fiber.Map{"message": "only yakuhito can access this endpoint!"})
+        return MakeErrorResponse(c, "only yakuhito can access this endpoint!")
     }
 
     args := new(GenerateGiftCodesArgs)
 
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
     }
 
     if args.Count < 1 || args.Count > 10000 {
-        return c.Status(500).JSON(fiber.Map{"message": "count should be in [1, 10000]"})
+        return MakeErrorResponse(c, "count should be in [1, 10000]")
     }
 
     // don't check credits it's admin that's making the request
@@ -289,46 +289,46 @@ func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
     user := getUser(uid)
     if user == nil {
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while fetching user"})
+        return MakeErrorResponse(c, "error ocurred while fetching user")
     }
 
     giftCodeAttempts := getGiftCodeAttempts(uid)
     if giftCodeAttempts.fails >= 42 {
-        return c.Status(500).JSON(fiber.Map{"message": "You've been blocked after claiming invalid gift codes for too many times. Contact the admin to be unhammered."})
+        return MakeErrorResponse(c, "You've been blocked after claiming invalid gift codes for too many times. Contact the admin to be unhammered.")
     }
 
     args := new(UseGiftCodeArgs)
 
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error ocurred while decoding input data"})
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
     }
 
     if len(args.Code) != 36 || len(args.APIKey) != 36 {
-        return c.Status(500).JSON(fiber.Map{"message": "incorrect input"})
+        return MakeErrorResponse(c, "incorrect input")
     }
 
     apiKey := getAPIKey(args.APIKey)
     if apiKey == nil || apiKey.uid != uid {
-        return c.Status(500).JSON(fiber.Map{"message": "unknown API key"})
+        return MakeErrorResponse(c, "unknown API key")
     }
 
     giftCode := getGiftCode(args.Code)
     if giftCode == nil || giftCode.used {
-        increaseGiftCodeAttempts(uid);
-        return c.Status(500).JSON(fiber.Map{"message": "invalid gift code"})
+        increaseGiftCodeAttempts(uid)
+        return MakeErrorResponse(c, "invalid gift code")
     }
 
     err := markGiftCodeAsUsed(args.Code, uid)
     if err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error while processing gift code"})
+        return MakeErrorResponse(c, "error while processing gift code")
     }
 
     err = increaseAPIKeyFreeUsage(args.APIKey, giftCode.credits)
     if err != nil {
         log.Print(err)
-        return c.Status(500).JSON(fiber.Map{"message": "error while updating API key free credits"})
+        return MakeErrorResponse(c, "error while updating API key free credits")
     }
     
     return c.JSON(fiber.Map{"success": true})
@@ -337,7 +337,7 @@ func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
 func setupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
-        log.Fatalf("Firebase credentials not found in FIREBASE_ADMIN_CREDS")
+        panic("Firebase credentials not found in FIREBASE_ADMIN_CREDS")
     }
     fbapp, err := firebase.NewApp(
         context.Background(),
@@ -345,13 +345,13 @@ func setupDashboardAPIRoutes(app *fiber.App) {
         option.WithCredentialsJSON([]byte(fbcreds)),
     )
     if err != nil {
-        log.Fatalf("error initializing Firebase app: %v\n", err)
+        panic("error initializing Firebase app: %v\n", err)
     }
 
     api := app.Group("/api")
     stripe_price_id := os.Getenv("STRIPE_PRICE_ID")
     if stripe_price_id == "" {
-        log.Fatalf("STRIPE_PRICE_ID environment variable not set; exiting...")
+        panic("STRIPE_PRICE_ID environment variable not set; exiting...")
     }
     api.Use(gofiberfirebaseauth.New(gofiberfirebaseauth.Config{
         FirebaseApp:  fbapp,

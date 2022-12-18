@@ -31,14 +31,14 @@ func leafletHandler(c *fiber.Ctx) error {
     resp, err := http.Post(url, "application/json", bytes.NewBuffer(c.Body()))
     if err != nil {
         log.Print(err)
-        return c.Status(500).SendString("Leaflet: error ocurred when processing request")
+        return MakeErrorResponse(c, "Leaflet: error ocurred when processing request")
     }
     defer resp.Body.Close()
     
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
         log.Print(err)
-        return c.Status(500).SendString("Leaflet: error ocurred when reading response")
+        return MakeErrorResponse(c, "Leaflet: error ocurred when reading response")
     }
     c.Set("Content-Type", "application/json")
     return c.SendString(string(body))
