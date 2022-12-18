@@ -14,4 +14,4 @@ FROM alpine
 
 COPY --from=builder /catchpole_build/catchpole /usr/local/bin/catchpole
 
-CMD beta
+CMD catchpole
