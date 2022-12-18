@@ -32,6 +32,7 @@ func main() {
     SetupStripeWebhook(app)
     SetupAdminRoutes(app)
     SetupDashboardAPIRoutes(app)
+    SetupBetaRoutes(app)
 
     go StripeBillRoutine()
 

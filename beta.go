@@ -74,7 +74,7 @@ func SetupBetaBaseUrl() {
     }
     beta_port := os.Getenv("CATCHPOLE_BETA_PORT")
     if beta_port == "" {
-        beta_port = "1337"
+        beta_port = "5000"
     }
     beta_base_url = fmt.Sprintf("http://%s:%s", beta_host, beta_port)
     fmt.Printf("Beta at %s\n", beta_base_url)
