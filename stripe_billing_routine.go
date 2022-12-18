@@ -6,7 +6,7 @@ import (
     "github.com/stripe/stripe-go/v74/usagerecord"
 )
 
-func billEveryone() {
+func BillEveryone() {
     itemId, credits := getUserBillingInfo()
     for itemId != "" {
         params := &stripe.UsageRecordParams{
@@ -22,10 +22,10 @@ func billEveryone() {
     }
 }
 
-func stripeBillRoutine() {
+func StripeBillRoutine() {
     time.Sleep(10 * time.Second) // allow everything to boot up
     for true {
-        billEveryone()
+        BillEveryone()
         time.Sleep(5 * time.Minute)
     }
 }

@@ -14,7 +14,7 @@ import (
 
 var DB *sql.DB
 
-func getWeekId() string {
+func GetWeekId() string {
     // https://stackoverflow.com/questions/47193649/week-number-based-on-timestamp-with-go
     tn := time.Now().UTC()
     year, week := tn.ISOWeek()
@@ -22,7 +22,7 @@ func getWeekId() string {
     return fmt.Sprintf("%d-%d", year, week)
 }
 
-func getAPIKey(api_key string) *APIKey {
+func GetAPIKey(api_key string) *APIKey {
     row := DB.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
 
     apiKey := new(APIKey)
@@ -46,7 +46,7 @@ func getAPIKey(api_key string) *APIKey {
     return apiKey
 }
 
-func getAPIKeyAndSubscribed(api_key string) (*APIKey, bool) {
+func GetAPIKeyAndSubscribed(api_key string) (*APIKey, bool) {
     row := DB.QueryRow("SELECT * FROM api_keys WHERE api_key = $1", api_key)
 
     apiKey := new(APIKey)
@@ -83,7 +83,7 @@ func getAPIKeyAndSubscribed(api_key string) (*APIKey, bool) {
     return apiKey, subscribed
 }
 
-func getAPIKeysForUser(uid string) []*APIKey {
+func GetAPIKeysForUser(uid string) []*APIKey {
     rows, err := DB.Query("SELECT * FROM api_keys WHERE uid = $1", uid)
     if err != nil {
         log.Print(err)
@@ -117,7 +117,7 @@ func getAPIKeysForUser(uid string) []*APIKey {
     return apiKeys
 }
 
-func decreaseCreditsToBill(api_key string, credits int64) error {
+func DecreaseCreditsToBill(api_key string, credits int64) error {
     result, err := DB.Exec(
         "UPDATE credits_to_bill SET credits = credits - $1 WHERE api_key = $2",
         credits, api_key,
@@ -140,7 +140,7 @@ func decreaseCreditsToBill(api_key string, credits int64) error {
 }
 
 // returns (stripe_item_id, credits)
-func getUserBillingInfo() (string, int64) {
+func GetUserBillingInfo() (string, int64) {
     row := DB.QueryRow("SELECT " + 
         "credits_to_bill.credits, credits_to_bill.api_key, users.stripe_item_id " + 
         "FROM credits_to_bill " + 
@@ -177,7 +177,7 @@ func getUserBillingInfo() (string, int64) {
     return stripeItemId, credits
 }
 
-func getWeeklyUsagesForUser(uid string) []*WeeklyUsage {
+func GetWeeklyUsagesForUser(uid string) []*WeeklyUsage {
     week_id := getWeekId()
     rows, err := DB.Query("SELECT * FROM weekly_usage WHERE week = $1 AND api_key IN (SELECT api_key FROM api_keys WHERE uid = $2)", week_id, uid)
     if err != nil {
@@ -209,7 +209,7 @@ func getWeeklyUsagesForUser(uid string) []*WeeklyUsage {
     return weeklyUsages
 }
 
-func getUser(uid string) *User {
+func GetUser(uid string) *User {
     row := DB.QueryRow("SELECT * FROM users WHERE uid = $1", uid)
 
     user := new(User)
@@ -230,7 +230,7 @@ func getUser(uid string) *User {
             uid,
         )
         if err != nil {
-            return getUser(uid)
+            return GetUser(uid)
         }
     }
 
@@ -241,7 +241,7 @@ func getUser(uid string) *User {
     return user
 }
 
-func getGiftCodeAttempts(uid string) *GiftCodeAttempts {
+func GetGiftCodeAttempts(uid string) *GiftCodeAttempts {
     row := DB.QueryRow("SELECT * FROM gift_code_attempts WHERE uid = $1", uid)
 
     gca := new(GiftCodeAttempts)
@@ -256,7 +256,7 @@ func getGiftCodeAttempts(uid string) *GiftCodeAttempts {
             uid,
         )
         if err != nil {
-            return getGiftCodeAttempts(uid)
+            return GetGiftCodeAttempts(uid)
         }
     }
 
@@ -267,7 +267,7 @@ func getGiftCodeAttempts(uid string) *GiftCodeAttempts {
     return gca
 }
 
-func getGiftCode(code string) *GiftCode {
+func GetGiftCode(code string) *GiftCode {
     row := DB.QueryRow("SELECT * FROM gift_codes WHERE code = $1", code)
 
     giftCode := new(GiftCode)
@@ -289,8 +289,8 @@ func getGiftCode(code string) *GiftCode {
     return giftCode
 }
 
-func getWeeklyUsage(api_key string) *WeeklyUsage {
-    week_id := getWeekId()
+func GetWeeklyUsage(api_key string) *WeeklyUsage {
+    week_id := GetWeekId()
     row := DB.QueryRow("SELECT * FROM weekly_usage WHERE api_key = $1 AND week = $2", api_key, week_id)
 
     weeklyUsage := new(WeeklyUsage)
@@ -310,8 +310,8 @@ func getWeeklyUsage(api_key string) *WeeklyUsage {
     return weeklyUsage
 }
 
-func getAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage, bool) {
-    week_id := getWeekId()
+func GetAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage, bool) {
+    week_id := GetWeekId()
     row := DB.QueryRow("SELECT " + 
         "weekly_usage.id, weekly_usage.api_key, weekly_usage.credits, weekly_usage.week, " +
         "api_keys.api_key, api_keys.disabled, api_keys.free_credits_remaining, api_keys.weekly_credit_limit, api_keys.name, api_keys.origin, api_keys.uid, " +
@@ -348,8 +348,8 @@ func getAPIKeyAndWeeklyUsage(api_key string) (*APIKey, *WeeklyUsage, bool) {
     return apiKey, weeklyUsage, subscribed
 }
 
-func createWeeklyUsage(api_key string) *WeeklyUsage {
-    week_id := getWeekId()
+func CreateWeeklyUsage(api_key string) *WeeklyUsage {
+    week_id := GetWeekId()
     result, err := DB.Exec(
         // prevent race conditions
         "INSERT INTO weekly_usage(api_key, credits, week) SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM weekly_usage WHERE api_key = $1 AND week = $3)",
@@ -370,10 +370,10 @@ func createWeeklyUsage(api_key string) *WeeklyUsage {
         return nil
     }
 
-    return getWeeklyUsage(api_key)
+    return GetWeeklyUsage(api_key)
 }
 
-func createAPIKey(uid string, free_credits int64, weekly_credit_limit int64, name string, origin string) error {
+func CreateAPIKey(uid string, free_credits int64, weekly_credit_limit int64, name string, origin string) error {
     id := uuid.New()
     api_key := id.String()
     result, err := DB.Exec(
@@ -401,7 +401,7 @@ func createAPIKey(uid string, free_credits int64, weekly_credit_limit int64, nam
     return nil
 }
 
-func generateGiftCode(credits int64) (string, error) {
+func GenerateGiftCode(credits int64) (string, error) {
     id := uuid.New()
     gift_code := id.String()
     result, err := DB.Exec(
@@ -429,7 +429,7 @@ func generateGiftCode(credits int64) (string, error) {
     return gift_code, nil
 }
 
-func decreaseAPIKeyFreeUsage(api_key string, credits int64) error {
+func DecreaseAPIKeyFreeUsage(api_key string, credits int64) error {
     result, err := DB.Exec(
         "UPDATE api_keys SET free_credits_remaining = free_credits_remaining - $1 WHERE api_key = $2",
         credits, api_key,
@@ -451,7 +451,7 @@ func decreaseAPIKeyFreeUsage(api_key string, credits int64) error {
     return nil
 }
 
-func increaseAPIKeyFreeUsage(api_key string, credits int64) error {
+func IncreaseAPIKeyFreeUsage(api_key string, credits int64) error {
     result, err := DB.Exec(
         "UPDATE api_keys SET free_credits_remaining = free_credits_remaining + $1 WHERE api_key = $2",
         credits, api_key,
@@ -473,7 +473,7 @@ func increaseAPIKeyFreeUsage(api_key string, credits int64) error {
     return nil
 }
 
-func markGiftCodeAsUsed(code string, uid string) error {
+func MarkGiftCodeAsUsed(code string, uid string) error {
     result, err := DB.Exec(
         "UPDATE gift_codes SET used = true, uid = $1 WHERE code = $2 AND used = false",
         uid, code,
@@ -495,7 +495,7 @@ func markGiftCodeAsUsed(code string, uid string) error {
     return nil
 }
 
-func increaseGiftCodeAttempts(uid string) error {
+func IncreaseGiftCodeAttempts(uid string) error {
     result, err := DB.Exec(
         "UPDATE gift_code_attempts SET fails = fails + 1 WHERE uid = $1",
         uid,
@@ -517,7 +517,7 @@ func increaseGiftCodeAttempts(uid string) error {
     return nil
 }
 
-func updateAPIKey(api_key string, disabled bool, weekly_credit_limit int64, name string, origin string) error {
+func UpdateAPIKey(api_key string, disabled bool, weekly_credit_limit int64, name string, origin string) error {
     result, err := DB.Exec(
         "UPDATE api_keys SET" +
         " disabled = $1," +
@@ -544,7 +544,7 @@ func updateAPIKey(api_key string, disabled bool, weekly_credit_limit int64, name
     return nil
 }
 
-func updateUserReceivedFreeCredits(uid string, received_free_credits bool) error {
+func UpdateUserReceivedFreeCredits(uid string, received_free_credits bool) error {
     result, err := DB.Exec(
         "UPDATE users SET received_free_credits = $1 WHERE uid = $2",
         received_free_credits, uid,
@@ -566,8 +566,8 @@ func updateUserReceivedFreeCredits(uid string, received_free_credits bool) error
     return nil
 }
 
-func increaseWeeklyUsage(api_key string, credits int64) error {
-    week_id := getWeekId()
+func IncreaseWeeklyUsage(api_key string, credits int64) error {
+    week_id := GetWeekId()
     result, err := DB.Exec(
         "UPDATE weekly_usage SET credits = credits + $1 WHERE api_key = $2 AND week = $3",
         credits, api_key, week_id,
@@ -589,7 +589,7 @@ func increaseWeeklyUsage(api_key string, credits int64) error {
     return nil
 }
 
-func billCredits(api_key string, uid string, credits int64) error {
+func BillCredits(api_key string, uid string, credits int64) error {
     result, err := DB.Exec(
         "UPDATE credits_to_bill SET credits = credits + $1 WHERE api_key = $2",
         credits, api_key,
@@ -614,7 +614,7 @@ func billCredits(api_key string, uid string, credits int64) error {
     return nil
 }
 
-func updateCustomerBillingDetails(
+func UpdateCustomerBillingDetails(
     uid string,
     has_active_stripe_subscription bool,
     stripe_user_id string,
@@ -650,7 +650,7 @@ func updateCustomerBillingDetails(
     return nil
 }
 
-func updateCustomerActiveSubscription(
+func UpdateCustomerActiveSubscription(
     stripe_user_id string,
     has_active_stripe_subscription bool,
 ) error {
@@ -675,7 +675,7 @@ func updateCustomerActiveSubscription(
     return nil
 }
 
-func updateUserStripeId(
+func UpdateUserStripeId(
     uid string,
     stripe_user_id string,
 ) error {
@@ -701,7 +701,7 @@ func updateUserStripeId(
 }
 
 
-func revokeAPIKeys(
+func RevokeAPIKeys(
     uid string,
 ) error {
     _, err := DB.Exec(
@@ -715,7 +715,7 @@ func revokeAPIKeys(
     return nil
 }
 
-func setupDB() {
+func SetupDB() {
     db_conn_string := os.Getenv("DB_CONN_STRING")
     if db_conn_string == "" {
         panic("DB_CONN_STRING not specified, exiting :(\n")

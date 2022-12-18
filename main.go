@@ -26,14 +26,14 @@ func main() {
         return c.SendString("Catchpole is alive and well.")
     })
 
-    setupDB()
+    SetupDB()
 
-    setupLeafletRoutes(app)
-    setupStripeWebhook(app)
-    setupAdminRoutes(app)
-    setupDashboardAPIRoutes(app)
+    SetupLeafletRoutes(app)
+    SetupStripeWebhook(app)
+    SetupAdminRoutes(app)
+    SetupDashboardAPIRoutes(app)
 
-    go stripeBillRoutine()
+    go StripeBillRoutine()
 
     log.Fatalln(app.Listen(fmt.Sprintf(":%v", port)))
 }

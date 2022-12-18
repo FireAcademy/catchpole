@@ -7,7 +7,7 @@ import (
     "github.com/gofiber/fiber/v2/middleware/basicauth"
 )
 
-func setupAdminRoutes(app *fiber.App) {
+func SetupAdminRoutes(app *fiber.App) {
     // admin group (routes) are protected by password
     admin_password := os.Getenv("CATCHPOLE_ADMIN_PASSWORD")
     if admin_password == "" {

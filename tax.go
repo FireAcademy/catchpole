@@ -19,14 +19,14 @@ func GetAPIKeyForRequest(c *fiber.Ctx) string {
 
 func CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key string, max_credits int64) (APIKey /*api_key*/, bool /* subscribed */, bool /*errored*/) {
     // get data
-    apiKey, weeklyUsage, subscribed := getAPIKeyAndWeeklyUsage(api_key)
+    apiKey, weeklyUsage, subscribed := GetAPIKeyAndWeeklyUsage(api_key)
 
     if weeklyUsage == nil {
-        weeklyUsage = createWeeklyUsage(api_key)
+        weeklyUsage = CreateWeeklyUsage(api_key)
         if weeklyUsage == nil {
             return nil, false, true
         }
-        apiKey, subscribed = getAPIKeyAndSubscribed(api_key)
+        apiKey, subscribed = GetAPIKeyAndSubscribed(api_key)
     }
     if apiKey == nil || apiKey.disabled {
         return nil, false, true
@@ -47,7 +47,7 @@ func CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key string, max_credits int64) 
 
 func TaxTraffic(apiKey APIKey, subscribed bool, credits int64) bool /* errored */ {
     if apiKey.free_credits_remaining >= credits {
-        if err := decreaseAPIKeyFreeUsage(apiKey.api_key, credits); err != nil {
+        if err := DecreaseAPIKeyFreeUsage(apiKey.api_key, credits); err != nil {
             log.Print(err)
             return true
         }
@@ -56,10 +56,10 @@ func TaxTraffic(apiKey APIKey, subscribed bool, credits int64) bool /* errored *
             return true
         }
 
-        billCredits(apiKey.api_key, apiKey.uid, credits)
+        BillCredits(apiKey.api_key, apiKey.uid, credits)
     }
 
-    err := increaseWeeklyUsage(api_key, credits)
+    err := IncreaseWeeklyUsage(api_key, credits)
     if err != nil {
         log.Print(err)
         return true

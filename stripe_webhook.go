@@ -11,7 +11,7 @@ import (
     "github.com/stripe/stripe-go/v74/subscription"
 )
 
-func stripeWebhook(c *fiber.Ctx) error {
+func StripeWebhook(c *fiber.Ctx) error {
     stripe_webhook_secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
     if stripe_webhook_secret == "" {
         fmt.Printf("STRIPE_WEBHOOK_SECRET not specified - this is BAD!")
@@ -47,7 +47,7 @@ func stripeWebhook(c *fiber.Ctx) error {
                 return MakeErrorResponse(c, "error #1 ser")
             }
             uid := customer.Metadata["uid"]
-            err = updateCustomerBillingDetails(uid, true, customerId, itemId, subscriptionId, productId, priceId)
+            err = UpdateCustomerBillingDetails(uid, true, customerId, itemId, subscriptionId, productId, priceId)
             if err != nil {
                 log.Print(err);
                 return MakeErrorResponse(c, "error #2 ser")
@@ -56,7 +56,7 @@ func stripeWebhook(c *fiber.Ctx) error {
         case "invoice.paid":
             customerId := event.Data.Object["customer"].(string)
             
-            err := updateCustomerActiveSubscription(customerId, true);
+            err := UpdateCustomerActiveSubscription(customerId, true);
             if err != nil {
                 log.Print(err);
                 return MakeErrorResponse(c, "error ser")
@@ -71,13 +71,13 @@ func stripeWebhook(c *fiber.Ctx) error {
             }
             uid := customer.Metadata["uid"]
 
-            err = updateCustomerActiveSubscription(customerId, false);
+            err = UpdateCustomerActiveSubscription(customerId, false);
             if err != nil {
                 log.Print(err);
                 return MakeErrorResponse(c, "error #2 ser")
             }
 
-            err = revokeAPIKeys(uid);
+            err = RevokeAPIKeys(uid);
             if err != nil {
                 log.Print(err);
                 return MakeErrorResponse(c, "error #3 ser")
@@ -92,13 +92,13 @@ func stripeWebhook(c *fiber.Ctx) error {
             }
             uid := customer.Metadata["uid"]
             
-            err = updateCustomerBillingDetails(uid, false, customerId, "", "", "", "")
+            err = UpdateCustomerBillingDetails(uid, false, customerId, "", "", "", "")
             if err != nil {
                 log.Print(err);
                 return MakeErrorResponse(c, "error #2 ser")
             }
 
-            err = revokeAPIKeys(uid);
+            err = RevokeAPIKeys(uid);
             if err != nil {
                 log.Print(err);
                 return MakeErrorResponse(c, "error #3 ser")
@@ -111,12 +111,12 @@ func stripeWebhook(c *fiber.Ctx) error {
     return c.SendString("ok ser")
 }
 
-func setupStripeWebhook(app *fiber.App) {
+func SetupStripeWebhook(app *fiber.App) {
     stripe_token := os.Getenv("STRIPE_SECRET_KEY")
     if stripe_token == "" {
         panic("STRIPE_SECRET_KEY not set")
     }
     
     stripe.Key = stripe_token
-    app.Post("/stripe/webhook", stripeWebhook)
+    app.Post("/stripe/webhook", StripeWebhook)
 }

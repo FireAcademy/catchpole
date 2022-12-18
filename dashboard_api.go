@@ -16,11 +16,11 @@ import (
     portalsession "github.com/stripe/stripe-go/v74/billingportal/session"
 )
 
-func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
+func HandleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
     authUser := c.Locals("user").(gofiberfirebaseauth.User)
     uid := authUser.UserID
     email := authUser.Email
-    user := getUser(uid)
+    user := GetUser(uid)
 
     shouldCheckOut := !user.stripe_subscription_id.Valid || user.stripe_subscription_id.String == "";
 
@@ -69,9 +69,9 @@ func handleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
     return c.JSON(fiber.Map{"url": ps.URL})
 }
 
-func handleDashboardDataAPIRequest(c *fiber.Ctx) error {
+func HandleDashboardDataAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
-    user := getUser(uid)
+    user := GetUser(uid)
     if user == nil {
         return MakeErrorResponse(c, "error ocurred while fetching user")
     }
@@ -119,9 +119,9 @@ type CreateAPIKeyArgs struct {
     Origin string `json:"origin"`
 }
 
-func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
+func HandleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
-    user := getUser(uid)
+    user := GetUser(uid)
     if user == nil {
         return MakeErrorResponse(c, "error ocurred while fetching user")
     }
@@ -152,7 +152,7 @@ func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
     freeUsage = 0
     if !user.received_free_credits {
         freeUsage = 4200000
-        err := updateUserReceivedFreeCredits(uid, true)
+        err := UpdateUserReceivedFreeCredits(uid, true)
         if err != nil {
             return MakeErrorResponse(c, "error ocurred while doing stuff")
         }
@@ -162,7 +162,7 @@ func handleCreateAPIKeyAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "weekly credit limit can be free usage at most unless you subscribe to our service")
     }
 
-    err := createAPIKey(uid, freeUsage, args.WeeklyCreditLimit, args.Name, args.Origin)
+    err := CreateAPIKey(uid, freeUsage, args.WeeklyCreditLimit, args.Name, args.Origin)
     if err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error ocurred while creating API key")
@@ -182,9 +182,9 @@ type UpdateAPIKeyArgs struct {
     Origin string `json:"origin"`
 }
 
-func handleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
+func HandleUpdateAPIKeyAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
-    user := getUser(uid)
+    user := GetUser(uid)
     if user == nil {
         return MakeErrorResponse(c, "error ocurred while fetching user")
     }
@@ -244,7 +244,7 @@ type GenerateGiftCodesArgs struct {
     Credits int64 `json:"credits"`
 }
 
-func handleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
+func HandleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
     user := c.Locals("user").(gofiberfirebaseauth.User)
     email := user.Email
 
@@ -266,7 +266,7 @@ func handleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
     // don't check credits it's admin that's making the request
     gift_codes := make([]string, 0)
     for i := 0; i < args.Count; i++ {
-        gift_code, err := generateGiftCode(args.Credits)
+        gift_code, err := GenerateGiftCode(args.Credits)
         if err != nil {
             log.Print(err)
             return c.Status(500).JSON(fiber.Map{"message": "error while generating code", "error": err})
@@ -285,14 +285,14 @@ type UseGiftCodeArgs struct {
     APIKey string `json:"api_key"`
 }
 
-func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
+func HandleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
-    user := getUser(uid)
+    user := GetUser(uid)
     if user == nil {
         return MakeErrorResponse(c, "error ocurred while fetching user")
     }
 
-    giftCodeAttempts := getGiftCodeAttempts(uid)
+    giftCodeAttempts := GetGiftCodeAttempts(uid)
     if giftCodeAttempts.fails >= 42 {
         return MakeErrorResponse(c, "You've been blocked after claiming invalid gift codes for too many times. Contact the admin to be unhammered.")
     }
@@ -308,24 +308,24 @@ func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "incorrect input")
     }
 
-    apiKey := getAPIKey(args.APIKey)
+    apiKey := GetAPIKey(args.APIKey)
     if apiKey == nil || apiKey.uid != uid {
         return MakeErrorResponse(c, "unknown API key")
     }
 
-    giftCode := getGiftCode(args.Code)
+    giftCode := GetGiftCode(args.Code)
     if giftCode == nil || giftCode.used {
         increaseGiftCodeAttempts(uid)
         return MakeErrorResponse(c, "invalid gift code")
     }
 
-    err := markGiftCodeAsUsed(args.Code, uid)
+    err := MarkGiftCodeAsUsed(args.Code, uid)
     if err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error while processing gift code")
     }
 
-    err = increaseAPIKeyFreeUsage(args.APIKey, giftCode.credits)
+    err = IncreaseAPIKeyFreeUsage(args.APIKey, giftCode.credits)
     if err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error while updating API key free credits")
@@ -334,7 +334,7 @@ func handleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
     return c.JSON(fiber.Map{"success": true})
 }
 
-func setupDashboardAPIRoutes(app *fiber.App) {
+func SetupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
         panic("Firebase credentials not found in FIREBASE_ADMIN_CREDS")
@@ -358,11 +358,11 @@ func setupDashboardAPIRoutes(app *fiber.App) {
         CheckEmailVerified : true,
     }))
     api.Get("/stripe-url", func (c *fiber.Ctx) error {
-        return handleStripeUrlAPIRequest(c, stripe_price_id);
+        return HandleStripeUrlAPIRequest(c, stripe_price_id);
     })
-    api.Get("/dashboard-data", handleDashboardDataAPIRequest)
-    api.Post("/api-key", handleCreateAPIKeyAPIRequest)
-    api.Put("/api-key", handleUpdateAPIKeyAPIRequest)
-    api.Post("/generate-gift-codes", handleGenerateGiftCodesAPIRequest)
-    api.Post("/gift-code", handleUseGiftCodeAPIRequest)
+    api.Get("/dashboard-data", HandleDashboardDataAPIRequest)
+    api.Post("/api-key", HandleCreateAPIKeyAPIRequest)
+    api.Put("/api-key", HandleUpdateAPIKeyAPIRequest)
+    api.Post("/generate-gift-codes", HandleGenerateGiftCodesAPIRequest)
+    api.Post("/gift-code", HandleUseGiftCodeAPIRequest)
 }
