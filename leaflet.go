@@ -15,13 +15,13 @@ var leaflet_base_url string
 func leafletHandler(c *fiber.Ctx) error {
     api_key := getAPIKeyForRequest(c)
     if api_key == "" {
-        return c.Status(401).SendString("No API key provided.")
+        return MakeNoAPIKeyProvidedResponse(c)
     }    
 
     const CREDITS_PER_REQUEST = 420
     origin, errored := taxTrafficAndReturnOrigin(api_key, CREDITS_PER_REQUEST)
     if errored {
-        return c.Status(401).SendString("Catchpole has blocked this request.")
+        return MakeRequestBlockedResponse(c)
     }
     c.Set("Access-Control-Allow-Origin", origin)
 
