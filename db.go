@@ -718,8 +718,7 @@ func revokeAPIKeys(
 func setupDB() {
     db_conn_string := os.Getenv("DB_CONN_STRING")
     if db_conn_string == "" {
-        fmt.Printf("DB_CONN_STRING not specified, exiting :(\n")
-        return
+        panic("DB_CONN_STRING not specified, exiting :(\n")
     }
     var err error
     DB, err = sql.Open("postgres", db_conn_string)
