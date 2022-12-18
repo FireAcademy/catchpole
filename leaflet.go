@@ -10,6 +10,8 @@ import (
     "github.com/gofiber/fiber/v2"
 )
 
+const LEAFLET_CREDITS_PER_REQUEST = 420
+
 var leaflet_base_url string
 
 func LeafletHandler(c *fiber.Ctx) error {
@@ -18,8 +20,7 @@ func LeafletHandler(c *fiber.Ctx) error {
         return MakeNoAPIKeyProvidedResponse(c)
     }    
 
-    const CREDITS_PER_REQUEST = 420
-    origin, errored := LeafletTaxTrafficAndReturnOrigin(api_key, CREDITS_PER_REQUEST)
+    origin, errored := LeafletTaxTrafficAndReturnOrigin(api_key, LEAFLET_CREDITS_PER_REQUEST)
     if errored {
         return MakeRequestBlockedResponse(c)
     }
