@@ -12,14 +12,14 @@ import (
 
 var leaflet_base_url string
 
-func leafletHandler(c *fiber.Ctx) error {
-    api_key := getAPIKeyForRequest(c)
+func LeafletHandler(c *fiber.Ctx) error {
+    api_key := GetAPIKeyForRequest(c)
     if api_key == "" {
         return MakeNoAPIKeyProvidedResponse(c)
     }    
 
     const CREDITS_PER_REQUEST = 420
-    origin, errored := taxTrafficAndReturnOrigin(api_key, CREDITS_PER_REQUEST)
+    origin, errored := LeafletTaxTrafficAndReturnOrigin(api_key, CREDITS_PER_REQUEST)
     if errored {
         return MakeRequestBlockedResponse(c)
     }
@@ -44,7 +44,7 @@ func leafletHandler(c *fiber.Ctx) error {
     return c.SendString(string(body))
 }
 
-func setupLeafletBaseUrl() {
+func SetupLeafletBaseUrl() {
     leaflet_host := os.Getenv("CATCHPOLE_LEAFLET_HOST")
     if leaflet_host == "" {
         leaflet_host = "leaflet"
@@ -57,11 +57,11 @@ func setupLeafletBaseUrl() {
     fmt.Printf("Leaflet at %s\n", leaflet_base_url)
 }
 
-func setupLeafletRoutes(app *fiber.App) {
-	setupLeafletBaseUrl()
+func SetupLeafletRoutes(app *fiber.App) {
+	SetupLeafletBaseUrl()
 
-    app.Get("/leaflet/:endpoint", leafletHandler)
-    app.Post("/leaflet/:endpoint", leafletHandler)
-    app.Get("/:api_key<guid>/leaflet/:endpoint", leafletHandler)
-    app.Post("/:api_key<guid>/leaflet/:endpoint", leafletHandler)
+    app.Get("/leaflet/:endpoint", LeafletHandler)
+    app.Post("/leaflet/:endpoint", LeafletHandler)
+    app.Get("/:api_key<guid>/leaflet/:endpoint", LeafletHandler)
+    app.Post("/:api_key<guid>/leaflet/:endpoint", LeafletHandler)
 }

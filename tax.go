@@ -5,7 +5,7 @@ import (
     "github.com/gofiber/fiber/v2"
 )
 
-func getAPIKeyForRequest(c *fiber.Ctx) string {
+func GetAPIKeyForRequest(c *fiber.Ctx) string {
     api_key := c.Params("api_key")
     if api_key == "" {
         api_key = c.Get("X-API-Key")
@@ -17,43 +17,64 @@ func getAPIKeyForRequest(c *fiber.Ctx) string {
     return api_key
 }
 
-func taxTrafficAndReturnOrigin(api_key string, credits_per_request int64) (string /*origin*/, bool /*errored*/) {
+func CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key string, max_credits int64) (APIKey /*api_key*/, bool /* subscribed */, bool /*errored*/) {
     // get data
     apiKey, weeklyUsage, subscribed := getAPIKeyAndWeeklyUsage(api_key)
 
     if weeklyUsage == nil {
         weeklyUsage = createWeeklyUsage(api_key)
         if weeklyUsage == nil {
-            return "", true
+            return nil, false, true
         }
         apiKey, subscribed = getAPIKeyAndSubscribed(api_key)
     }
     if apiKey == nil || apiKey.disabled {
-        return "", true
+        return nil, false, true
     }
 
     // limit check
-    if apiKey.weekly_credit_limit != 0 && weeklyUsage.credits + credits_per_request > apiKey.weekly_credit_limit {
-        return "", true
+    if apiKey.weekly_credit_limit != 0 && weeklyUsage.credits + max_credits > apiKey.weekly_credit_limit {
+        return nil, false, true
     }
 
-    // can user pay for these credits? + record usage
-    if apiKey.free_credits_remaining > credits_per_request {
-        if err := decreaseAPIKeyFreeUsage(api_key, credits_per_request); err != nil {
+    // can user pay for max credits?
+    if !subscribed && apiKey.free_credits_remaining < max_credits {
+        return nil, false, true
+    }
+    
+    return apiKey, subscribed, false
+}
+
+func TaxTraffic(apiKey APIKey, subscribed bool, credits int64) bool /* errored */ {
+    if apiKey.free_credits_remaining >= credits {
+        if err := decreaseAPIKeyFreeUsage(apiKey.api_key, credits); err != nil {
             log.Print(err)
-            return "", true
+            return true
         }
     } else {
         if !subscribed {
-            return "", true
+            return true
         }
 
-        billCredits(api_key, apiKey.uid, credits_per_request)
+        billCredits(apiKey.api_key, apiKey.uid, credits)
     }
-    err := increaseWeeklyUsage(api_key, credits_per_request)
+
+    err := increaseWeeklyUsage(api_key, credits)
     if err != nil {
+        log.Print(err)
+        return true
+    }
+
+    return false
+}
+
+func LeafletTaxTrafficAndReturnOrigin(api_key string, credits_per_request int64) (string /*origin*/, bool /*errored*/) {
+    apiKey, subscribed, error1 := CheckAPIKeyAndReturnAPIKeyAndSubscribed(api_key, credits_per_request)
+    if error1 {
         return "", true
     }
 
-    return apiKey.origin, false
+    error2 := TaxTraffic(apiKey, subscribed)
+
+    return apiKey.origin, error2
 } 
