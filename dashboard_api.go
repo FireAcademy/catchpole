@@ -357,6 +357,7 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
         FirebaseApp:  fbapp,
         CheckEmailVerified : true,
     }))
+    
     api.Get("/stripe-url", func (c *fiber.Ctx) error {
         return HandleStripeUrlAPIRequest(c, stripe_price_id);
     })

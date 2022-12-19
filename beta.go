@@ -52,8 +52,9 @@ func BetaHandler(c *fiber.Ctx) error {
     billed_results = 1
 
     betaResponse := new(BetaResponse)
-    err = json.NewDecoder(resp.Body).Decode(&betaResponse)
+    err = json.Unmarshal(body, &betaResponse)
     if err != nil {
+        log.Print(err)
         return MakeErrorResponse(c, "Beta: error ocurred when decoding response")
     } else {
         if betaResponse.Results > 1 {
