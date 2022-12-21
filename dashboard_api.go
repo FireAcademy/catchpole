@@ -464,6 +464,39 @@ func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
     });
 }
 
+type ResolveFeedbackArgs struct {
+    Id int `json:"id"`
+}
+
+func HandleResolveFeedbackAPIRequest(c *fiber.Ctx) error {
+    user := c.Locals("user").(gofiberfirebaseauth.User)
+    email := user.Email
+
+    if email != ADMIN_EMAIL {
+        return MakeErrorResponse(c, "only the admin can access this endpoint!")
+    }
+    
+    args := new(ResolveFeedbackArgs)
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
+    }
+
+    if args.Id < 1 {
+        return MakeErrorResponse(c, "come on man - you know better than anyone that the id should be greater than or equal to 1 :(")
+    }
+
+    err := MarkFeedbackAsResolved(args.Id)
+    if err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error while marking feedback as resolved :(")
+    }
+
+    return c.JSON(fiber.Map{
+        "success": true,
+    });
+}
+
 func SetupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
