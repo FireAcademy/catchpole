@@ -715,6 +715,44 @@ func RevokeAPIKeys(
     return nil
 }
 
+func AddFeedbackToDb(message string, emotional_state string, uid string, contact string) bool /*error*/ {
+    var uid_for_db sql.NullString
+    if uid == "" {
+        uid_for_db = sql.NullString{Valid: false}
+    } else {
+        uid_for_db = sql.NullString{Valid: true, String: uid}
+    }
+
+    var contact_for_db sql.NullString
+    if contact == "" {
+        contact_for_db = sql.NullString{Valid: false}
+    } else {
+        contact_for_db = sql.NullString{Valid: true, String: contact}
+    }
+
+    result, err := DB.Exec(
+        "INSERT INTO feedback(feedback, emotional_state, uid, contact, resolved) VALUES ($1, $2, $3, $4, $5)",
+        message, emotional_state, uid_for_db, contact_for_db, false
+    )
+    if err != nil {
+        log.Print(err)
+        return true
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        log.Print(err)
+        return true
+    }
+    if rowsAffected != 1 {
+        log.Print(api_key + " -> ????? (rowsAffected != 1 in AddFeedbackToDb)")
+        return true
+    }
+
+    return false
+}
+
+
 func SetupDB() {
     db_conn_string := os.Getenv("DB_CONN_STRING")
     if db_conn_string == "" {

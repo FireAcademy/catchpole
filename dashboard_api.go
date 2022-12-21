@@ -334,6 +334,57 @@ func HandleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
     return c.JSON(fiber.Map{"success": true})
 }
 
+type CreateFeedbackArgs struct {
+    Message string `json:"message"`
+    EmotionalState string `json:"emotional_state"`
+    Anonymous bool `json:"anonymous"`
+    Contact string `json:"contact`
+}
+
+func HandleCreateFeedbackAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+
+    args := new(UseGiftCodeArgs)
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
+    }
+
+    if len(args.Message) < 2 ||  {
+        return MakeErrorResponse(c, "Can you please add more details to your message?")
+    }
+
+    if len(args.Message) > 2048 {
+        return MakeErrorResponse(c, "You feedback looks like it should be an entire meeting.")
+    }
+
+    if len(args.EmotionalState) < 2 {
+        return MakeErrorResponse(c, "Maybe you feel that way, but please try to describe it in more than 2 characters.")
+    }
+
+    if len(args.EmotionalState) > 128 {
+        return MakeErrorResponse(c, "Maybe you feel that way, but please try to be more concise and describe it in 128 chars ar most.")
+    }
+
+    if !args.Anonymous && (len(args.Contact) < 4) {
+        return MakeErrorResponse(c, "Your contact details are too concise. Can you add more details, please?")
+    }
+
+    if !args.Anonymous && (len(args.Contact) > 128) {
+        return MakeErrorResponse(c, "The principle of parsimony is not upheld in your contact details. Please be more concise.")
+    }
+
+    const uidForDb = args.Anonymous ? "" : uid;
+    const contactDetailsForDb = args.Anonymous ? "" : args.Contact;
+
+    errored := AddFeedbackToDb(args.Message, args.EmotionalState, uidForDb, contactDetailsForDb)
+    if errored {
+        return MakeErrorResponse(c, "An error ocurred while processing your valuable feedback.")
+    }
+    
+    return c.JSON(fiber.Map{"success": true})
+}
+
 func SetupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
@@ -366,5 +417,5 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
     api.Put("/api-key", HandleUpdateAPIKeyAPIRequest)
     api.Post("/generate-gift-codes", HandleGenerateGiftCodesAPIRequest)
     api.Post("/gift-code", HandleUseGiftCodeAPIRequest)
-    // api.Post("/feedback", HandleCreateFeedbackAPIRequest)
+    api.Post("/feedback", HandleCreateFeedbackAPIRequest)
 }
