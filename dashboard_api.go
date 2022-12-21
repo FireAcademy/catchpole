@@ -9,6 +9,7 @@ import (
     "github.com/gofiber/fiber/v2"
     "google.golang.org/api/option"
     firebase "firebase.google.com/go"
+    "firebase.google.com/go/auth"
     "github.com/stripe/stripe-go/v74"
     "github.com/sacsand/gofiber-firebaseauth"
     "github.com/stripe/stripe-go/v74/customer"
@@ -442,7 +443,7 @@ func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "only the admin can access this endpoint!")
     }
     
-    feedback := GetUnresolvedFeedback(uid)
+    feedback := GetUnresolvedFeedback()
     if feedback == nil {
         return MakeErrorResponse(c, "Could not get unresolved feedback :(")
     }
@@ -453,8 +454,8 @@ func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
             "id": item.id,
             "feedback": item.feedback,
             "emotional_state": item.emotional_state,
-            "uid": item.uid,
-            "contact": item.contact,
+            "uid": item.uid.String,
+            "contact": item.contact.String,
             "resolved": item.resolved,
         })
     }
@@ -498,7 +499,7 @@ func HandleResolveFeedbackAPIRequest(c *fiber.Ctx) error {
 }
 
 type VerifyEmailArgs struct {
-    Email int `json:"email"`
+    Email string `json:"email"`
 }
 
 func HandleVerifyEmailAPIRequest(c *fiber.Ctx, app *firebase.App) error {
@@ -515,21 +516,25 @@ func HandleVerifyEmailAPIRequest(c *fiber.Ctx, app *firebase.App) error {
         return MakeErrorResponse(c, "error ocurred while decoding input data")
     }
 
-    if len(Email) < 2 {
+    if len(args.Email) < 2 {
         return MakeErrorResponse(c, "got email?") // got milk?
     }
 
-    auth := app.Auth()
+    authClient, err := app.Auth(context.Background())
+    if err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error while intitializing admin Auth thingy")
+    }
 
-    target_user, err = auth.GetUserByEmail(context.Background(), args.Email)
+    target_user, err := authClient.GetUserByEmail(context.Background(), args.Email)
     if err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error while fetching user by email")
     }
-    target_user_uid := target_user.UserId
+    target_user_uid := target_user.UID
 
     update := (&auth.UserToUpdate{}).EmailVerified(true)
-    updated, err := auth.UpdateUser(context.Background(), target_user_uid, update)
+    _, err = authClient.UpdateUser(context.Background(), target_user_uid, update)
     if err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error while updating")

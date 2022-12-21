@@ -715,7 +715,7 @@ func RevokeAPIKeys(
     return nil
 }
 
-func AddFeedbackToDb(message string, emotional_state string, uid string, contact string) bool /*error*/ {
+func AddTicketToDb(message string, emotional_state string, uid string, contact string) bool /*error*/ {
     var uid_for_db sql.NullString
     if uid == "" {
         uid_for_db = sql.NullString{Valid: false}
@@ -731,7 +731,7 @@ func AddFeedbackToDb(message string, emotional_state string, uid string, contact
     }
 
     result, err := DB.Exec(
-        "INSERT INTO feedback(feedback, emotional_state, uid, contact, resolved) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO tickets(message, emotional_state, uid, contact, resolved) VALUES ($1, $2, $3, $4, $5)",
         message, emotional_state, uid_for_db, contact_for_db, false,
     )
     if err != nil {
@@ -823,9 +823,9 @@ func MarkUpdatesAsReadForUser(uid string) error {
     return nil
 }
 
-func GetUnresolvedFeedback() []*Feedback {
+func GetUnresolvedTickets() []*Ticket {
     rows, err := DB.Query(
-        "SELECT id, feedback, emotional_state, uid, contact, resolved FROM feedback WHERE resolved = false"
+        "SELECT id, message, emotional_state, uid, contact, resolved FROM tickets WHERE resolved = false",
     )
     if err != nil {
         log.Print(err)
@@ -833,29 +833,29 @@ func GetUnresolvedFeedback() []*Feedback {
     }
     defer rows.Close()
 
-    feedback := make([]*Feedback, 0)
+    tickets := make([]*Ticket, 0)
     for rows.Next() {
-        feedback_item := new(Feedback)
+        ticket := new(Ticket)
         err := rows.Scan(
-            &feedback_item.id,
-            &feedback_item.feedback,
-            &feedback_item.emotional_state,
-            &feedback_item.uid,
-            &feedback_item.contact,
-            &feedback_item.resolved,
+            &ticket.id,
+            &ticket.message,
+            &ticket.emotional_state,
+            &ticket.uid,
+            &ticket.contact,
+            &ticket.resolved,
         )
         if err != nil {
             log.Print(err)
             return nil
         }
-        feedback = append(feedback, feedback_item)
+        tickets = append(tickets, ticket)
     }
     if err = rows.Err(); err != nil {
         log.Print(err)
         return nil
     }
 
-    return feedback
+    return tickets
 }
 
 func MarkFeedbackAsResolved(

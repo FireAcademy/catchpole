@@ -45,9 +45,9 @@ type GiftCodeAttempts struct {
     fails int64
 }
 
-type Feedback struct {
+type Ticket struct {
     id int64 
-    feedback string
+    message string
     emotional_state string
     uid sql.NullString
     contact sql.NullString
