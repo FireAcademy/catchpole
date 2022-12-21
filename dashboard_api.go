@@ -369,10 +369,6 @@ func HandleCreateTicketAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "Maybe you feel that way, but please try to be more concise and describe it in 128 chars ar most.")
     }
 
-    if !args.Anonymous && (len(args.Contact) < 4) {
-        return MakeErrorResponse(c, "Your contact details are too concise. Can you add more details, please?")
-    }
-
     if !args.Anonymous && (len(args.Contact) > 128) {
         return MakeErrorResponse(c, "The principle of parsimony is not upheld in your contact details. Please be more concise.")
     }
