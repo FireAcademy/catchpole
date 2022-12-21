@@ -385,6 +385,42 @@ func HandleCreateFeedbackAPIRequest(c *fiber.Ctx) error {
     return c.JSON(fiber.Map{"success": true})
 }
 
+func HandleGetUpdatesAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    
+    updates := GetUpdatesForUser(uid)
+    if updates == nil {
+        return MakeErrorResponse(c, "Could not get updates :(")
+    }
+    var updates_JSON []interface{}
+    for _, update := range updates {
+        updates_JSON = append(updates_JSON, fiber.Map{
+            "name": update.name,
+            "title": update.title,
+            "description": update.description,
+            "learn_more_link": update.learn_more_link,
+        })
+    }
+    
+    return c.JSON(fiber.Map{
+        "updates": updates_JSON,
+    });
+}
+
+func HandleReadUpdatesAPIRequest(c *fiber.Ctx) error {
+    uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
+    
+    err := MarkUpdatesAsReadForUser(uid)
+    if err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "An error ocurred while interacting with the database :(")
+    }
+    
+    return c.JSON(fiber.Map{
+        "success": true,
+    });
+}
+
 func SetupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
@@ -418,4 +454,6 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
     api.Post("/generate-gift-codes", HandleGenerateGiftCodesAPIRequest)
     api.Post("/gift-code", HandleUseGiftCodeAPIRequest)
     api.Post("/feedback", HandleCreateFeedbackAPIRequest)
+    api.Get("/updates", HandleGetUpdatesAPIRequest)
+    api.Post("/updates", HandleReadUpdatesAPIRequest)
 }

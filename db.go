@@ -752,6 +752,76 @@ func AddFeedbackToDb(message string, emotional_state string, uid string, contact
     return false
 }
 
+func GetUpdatesForUser(uid string) []*Update {
+    rows, err := DB.Query(
+        "SELECT id, name, title, description, learn_more_link FROM updates " + 
+        "WHERE id > " +
+        "(" + 
+        " SELECT CASE COUNT(*) WHEN 0 THEN 0 ELSE MAX(update_id) END" +
+        " FROM users_last_update_acknowledged" +
+        " WHERE uid=$1" +
+        " LIMIT 1" +
+        ") " +
+        "ORDER BY id ASC",
+        uid)
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+    defer rows.Close()
+
+    updates := make([]*Update, 0)
+    for rows.Next() {
+        update := new(Update)
+        err := rows.Scan(
+            &update.id,
+            &update.name,
+            &update.title,
+            &update.description,
+            &update.learn_more_link,
+        )
+        if err != nil {
+            log.Print(err)
+            return nil
+        }
+        updates = append(updates, update)
+    }
+    if err = rows.Err(); err != nil {
+        log.Print(err)
+        return nil
+    }
+
+    return updates
+}
+
+func MarkUpdatesAsReadForUser(uid string) error {
+    result, err := DB.Exec(
+        "UPDATE users_last_update_acknowledged " +
+        "SET update_id = (SELECT MAX(id) FROM updates) " + 
+        "WHERE uid = $1",
+        uid,
+    )
+    if err != nil {
+        return err
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+
+    if rowsAffected != 1 {
+        _, err = DB.Exec(
+            "INSERT INTO users_last_update_acknowledged(uid, update_id) VALUES($1, (SELECT MAX(id) FROM updates))",
+            uid,
+        )
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
 
 func SetupDB() {
     db_conn_string := os.Getenv("DB_CONN_STRING")
