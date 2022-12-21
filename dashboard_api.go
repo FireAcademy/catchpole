@@ -16,6 +16,8 @@ import (
     portalsession "github.com/stripe/stripe-go/v74/billingportal/session"
 )
 
+const ADMIN_EMAIL = "y@kuhi.to"
+
 func HandleStripeUrlAPIRequest(c *fiber.Ctx, price_id string) error {
     authUser := c.Locals("user").(gofiberfirebaseauth.User)
     uid := authUser.UserID
@@ -248,8 +250,8 @@ func HandleGenerateGiftCodesAPIRequest(c *fiber.Ctx) error {
     user := c.Locals("user").(gofiberfirebaseauth.User)
     email := user.Email
 
-    if email != "y@kuhi.to" {
-        return MakeErrorResponse(c, "only yakuhito can access this endpoint!")
+    if email != ADMIN_EMAIL {
+        return MakeErrorResponse(c, "only the admin can access this endpoint!")
     }
 
     args := new(GenerateGiftCodesArgs)
@@ -432,6 +434,36 @@ func HandleReadUpdatesAPIRequest(c *fiber.Ctx) error {
     });
 }
 
+func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
+    user := c.Locals("user").(gofiberfirebaseauth.User)
+    email := user.Email
+
+    if email != ADMIN_EMAIL {
+        return MakeErrorResponse(c, "only the admin can access this endpoint!")
+    }
+    
+    feedback := GetUnresolvedFeedback(uid)
+    if feedback == nil {
+        return MakeErrorResponse(c, "Could not get unresolved feedback :(")
+    }
+
+    var feedback_JSON []interface{}
+    for _, item := range feedback {
+        feedback_JSON = append(feedback_JSON, fiber.Map{
+            "id": item.id,
+            "feedback": item.feedback,
+            "emotional_state": item.emotional_state,
+            "uid": item.uid,
+            "contact": item.contact,
+            "resolved": item.resolved,
+        })
+    }
+    
+    return c.JSON(fiber.Map{
+        "unresolved_feedback": feedback_JSON,
+    });
+}
+
 func SetupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
@@ -467,4 +499,6 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
     api.Post("/feedback", HandleCreateFeedbackAPIRequest)
     api.Get("/updates", HandleGetUpdatesAPIRequest)
     api.Post("/updates", HandleReadUpdatesAPIRequest)
+    api.Get("/unresolved-feedback", HandleGetUnresolveFeedbackAPIRequest)
+    api.Post("/resolve-feedback", HandleResolveFeedbackAPIRequest)
 }

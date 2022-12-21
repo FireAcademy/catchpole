@@ -823,6 +823,55 @@ func MarkUpdatesAsReadForUser(uid string) error {
     return nil
 }
 
+func GetUnresolvedFeedback() []*Feedback {
+    rows, err := DB.Query(
+        "SELECT id, feedback, emotional_state, uid, contact, resolved FROM feedback WHERE resolved = false"
+    )
+    if err != nil {
+        log.Print(err)
+        return nil
+    }
+    defer rows.Close()
+
+    feedback := make([]*Feedback, 0)
+    for rows.Next() {
+        feedback_item := new(Feedback)
+        err := rows.Scan(
+            &feedback_item.id,
+            &feedback_item.feedback,
+            &feedback_item.emotional_state,
+            &feedback_item.uid,
+            &feedback_item.contact,
+            &feedback_item.resolved,
+        )
+        if err != nil {
+            log.Print(err)
+            return nil
+        }
+        feedback = append(feedback, feedback_item)
+    }
+    if err = rows.Err(); err != nil {
+        log.Print(err)
+        return nil
+    }
+
+    return feedback
+}
+
+func MarkFeedbackAsResolved(
+    id int,
+) error {
+    _, err := DB.Exec(
+        "UPDATE feedback SET resolved = true WHERE id = $1",
+        id,
+    )
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
 func SetupDB() {
     db_conn_string := os.Getenv("DB_CONN_STRING")
     if db_conn_string == "" {
