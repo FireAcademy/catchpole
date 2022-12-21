@@ -366,4 +366,5 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
     api.Put("/api-key", HandleUpdateAPIKeyAPIRequest)
     api.Post("/generate-gift-codes", HandleGenerateGiftCodesAPIRequest)
     api.Post("/gift-code", HandleUseGiftCodeAPIRequest)
+    // api.Post("/feedback", HandleCreateFeedbackAPIRequest)
 }

@@ -44,3 +44,20 @@ type GiftCodeAttempts struct {
     uid string
     fails int64
 }
+
+type Feedback struct {
+    id int64 
+    feedback string
+    emotional_state string
+    uid sql.NullString
+    contact sql.NullString
+    resolved bool
+}
+
+type Update struct {
+    id int64 
+    name string
+    title string
+    description string
+    learn_more_link string
+}
