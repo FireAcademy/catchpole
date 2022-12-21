@@ -858,11 +858,11 @@ func GetUnresolvedTickets() []*Ticket {
     return tickets
 }
 
-func MarkFeedbackAsResolved(
+func MarkTicketAsResolved(
     id int,
 ) error {
     _, err := DB.Exec(
-        "UPDATE feedback SET resolved = true WHERE id = $1",
+        "UPDATE tickets SET resolved = true WHERE id = $1",
         id,
     )
     if err != nil {

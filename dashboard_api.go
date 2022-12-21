@@ -337,14 +337,14 @@ func HandleUseGiftCodeAPIRequest(c *fiber.Ctx) error {
     return c.JSON(fiber.Map{"success": true})
 }
 
-type CreateFeedbackArgs struct {
+type CreateTicketArgs struct {
     Message string `json:"message"`
     EmotionalState string `json:"emotional_state"`
     Anonymous bool `json:"anonymous"`
     Contact string `json:"contact`
 }
 
-func HandleCreateFeedbackAPIRequest(c *fiber.Ctx) error {
+func HandleCreateTicketAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
 
     args := new(CreateFeedbackArgs)
@@ -391,9 +391,9 @@ func HandleCreateFeedbackAPIRequest(c *fiber.Ctx) error {
         contactDetailsForDb = args.Contact
     }
 
-    errored := AddFeedbackToDb(args.Message, args.EmotionalState, uidForDb, contactDetailsForDb)
+    errored := AddTicketToDb(args.Message, args.EmotionalState, uidForDb, contactDetailsForDb)
     if errored {
-        return MakeErrorResponse(c, "An error ocurred while processing your valuable feedback.")
+        return MakeErrorResponse(c, "An error ocurred while processing your valuable input.")
     }
     
     return c.JSON(fiber.Map{"success": true})
@@ -435,7 +435,7 @@ func HandleReadUpdatesAPIRequest(c *fiber.Ctx) error {
     });
 }
 
-func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
+func HandleGetUnresolvedTicketsAPIRequest(c *fiber.Ctx) error {
     user := c.Locals("user").(gofiberfirebaseauth.User)
     email := user.Email
 
@@ -443,16 +443,16 @@ func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "only the admin can access this endpoint!")
     }
     
-    feedback := GetUnresolvedFeedback()
-    if feedback == nil {
-        return MakeErrorResponse(c, "Could not get unresolved feedback :(")
+    tickets := GetUnresolvedTickets()
+    if tickets == nil {
+        return MakeErrorResponse(c, "Could not get unresolved tickets :(")
     }
 
-    var feedback_JSON []interface{}
+    var tickets_JSON []interface{}
     for _, item := range feedback {
-        feedback_JSON = append(feedback_JSON, fiber.Map{
+        tickets_JSON = append(feedback_JSON, fiber.Map{
             "id": item.id,
-            "feedback": item.feedback,
+            "message": item.message,
             "emotional_state": item.emotional_state,
             "uid": item.uid.String,
             "contact": item.contact.String,
@@ -461,15 +461,15 @@ func HandleGetUnresolveFeedbackAPIRequest(c *fiber.Ctx) error {
     }
     
     return c.JSON(fiber.Map{
-        "unresolved_feedback": feedback_JSON,
+        "unresolved_tickets": tickets_JSON,
     });
 }
 
-type ResolveFeedbackArgs struct {
+type ResolveTicketArgs struct {
     Id int `json:"id"`
 }
 
-func HandleResolveFeedbackAPIRequest(c *fiber.Ctx) error {
+func HandleResolveTicketAPIRequest(c *fiber.Ctx) error {
     user := c.Locals("user").(gofiberfirebaseauth.User)
     email := user.Email
 
@@ -487,10 +487,10 @@ func HandleResolveFeedbackAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "come on man - you know better than anyone that the id should be greater than or equal to 1 :(")
     }
 
-    err := MarkFeedbackAsResolved(args.Id)
+    err := MarkTicketAsResolved(args.Id)
     if err != nil {
         log.Print(err)
-        return MakeErrorResponse(c, "error while marking feedback as resolved :(")
+        return MakeErrorResponse(c, "error while marking ticket as resolved :(")
     }
 
     return c.JSON(fiber.Map{
@@ -578,11 +578,11 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
     api.Put("/api-key", HandleUpdateAPIKeyAPIRequest)
     api.Post("/generate-gift-codes", HandleGenerateGiftCodesAPIRequest)
     api.Post("/gift-code", HandleUseGiftCodeAPIRequest)
-    api.Post("/feedback", HandleCreateFeedbackAPIRequest)
+    api.Post("/ticket", HandleCreateTicketAPIRequest)
     api.Get("/updates", HandleGetUpdatesAPIRequest)
     api.Post("/updates", HandleReadUpdatesAPIRequest)
-    api.Get("/unresolved-feedback", HandleGetUnresolveFeedbackAPIRequest)
-    api.Post("/resolve-feedback", HandleResolveFeedbackAPIRequest)
+    api.Get("/unresolved-tickets", HandleGetUnresolvedTicketsAPIRequest)
+    api.Post("/resolve-ticket", HandleResolveTicketAPIRequest)
     api.Post("/verify-email", func (c *fiber.Ctx) error {
         return HandleVerifyEmailAPIRequest(c, fbapp);
     })
