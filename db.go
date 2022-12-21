@@ -732,7 +732,7 @@ func AddFeedbackToDb(message string, emotional_state string, uid string, contact
 
     result, err := DB.Exec(
         "INSERT INTO feedback(feedback, emotional_state, uid, contact, resolved) VALUES ($1, $2, $3, $4, $5)",
-        message, emotional_state, uid_for_db, contact_for_db, false
+        message, emotional_state, uid_for_db, contact_for_db, false,
     )
     if err != nil {
         log.Print(err)
@@ -745,7 +745,7 @@ func AddFeedbackToDb(message string, emotional_state string, uid string, contact
         return true
     }
     if rowsAffected != 1 {
-        log.Print(api_key + " -> ????? (rowsAffected != 1 in AddFeedbackToDb)")
+        log.Print(message + " -> ????? (rowsAffected != 1 in AddFeedbackToDb)")
         return true
     }
 

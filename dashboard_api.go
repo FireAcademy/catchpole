@@ -344,13 +344,13 @@ type CreateFeedbackArgs struct {
 func HandleCreateFeedbackAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
 
-    args := new(UseGiftCodeArgs)
+    args := new(CreateFeedbackArgs)
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error ocurred while decoding input data")
     }
 
-    if len(args.Message) < 2 ||  {
+    if len(args.Message) < 2 {
         return MakeErrorResponse(c, "Can you please add more details to your message?")
     }
 
@@ -374,8 +374,19 @@ func HandleCreateFeedbackAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "The principle of parsimony is not upheld in your contact details. Please be more concise.")
     }
 
-    const uidForDb = args.Anonymous ? "" : uid;
-    const contactDetailsForDb = args.Anonymous ? "" : args.Contact;
+    var uidForDb string
+    if args.Anonymous {
+        uidForDb = ""
+    } else {
+        uidForDb = uid
+    }
+
+    var contactDetailsForDb string
+    if args.Anonymous {
+        contactDetailsForDb = ""
+    } else {
+        contactDetailsForDb = args.Contact
+    }
 
     errored := AddFeedbackToDb(args.Message, args.EmotionalState, uidForDb, contactDetailsForDb)
     if errored {
