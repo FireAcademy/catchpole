@@ -347,7 +347,7 @@ type CreateTicketArgs struct {
 func HandleCreateTicketAPIRequest(c *fiber.Ctx) error {
     uid := c.Locals("user").(gofiberfirebaseauth.User).UserID
 
-    args := new(CreateFeedbackArgs)
+    args := new(CreateTicketArgs)
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error ocurred while decoding input data")
@@ -449,8 +449,8 @@ func HandleGetUnresolvedTicketsAPIRequest(c *fiber.Ctx) error {
     }
 
     var tickets_JSON []interface{}
-    for _, item := range feedback {
-        tickets_JSON = append(feedback_JSON, fiber.Map{
+    for _, item := range tickets {
+        tickets_JSON = append(tickets_JSON, fiber.Map{
             "id": item.id,
             "message": item.message,
             "emotional_state": item.emotional_state,
@@ -477,7 +477,7 @@ func HandleResolveTicketAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "only the admin can access this endpoint!")
     }
     
-    args := new(ResolveFeedbackArgs)
+    args := new(ResolveTicketArgs)
     if err := c.BodyParser(args); err != nil {
         log.Print(err)
         return MakeErrorResponse(c, "error ocurred while decoding input data")

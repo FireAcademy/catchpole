@@ -2,5 +2,5 @@
 ### (formerly: taxman)
 
 ```
-ghcr.io/fireacademy/catchpole:1.1.6
+ghcr.io/fireacademy/catchpole:1.1.7
 ```
