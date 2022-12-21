@@ -497,6 +497,50 @@ func HandleResolveFeedbackAPIRequest(c *fiber.Ctx) error {
     });
 }
 
+type VerifyEmailArgs struct {
+    Email int `json:"email"`
+}
+
+func HandleVerifyEmailAPIRequest(c *fiber.Ctx, app *firebase.App) error {
+    user := c.Locals("user").(gofiberfirebaseauth.User)
+    email := user.Email
+
+    if email != ADMIN_EMAIL {
+        return MakeErrorResponse(c, "only the admin can access this endpoint!")
+    }
+    
+    args := new(VerifyEmailArgs)
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
+    }
+
+    if len(Email) < 2 {
+        return MakeErrorResponse(c, "got email?") // got milk?
+    }
+
+    auth := app.Auth()
+
+    target_user, err = auth.GetUserByEmail(context.Background(), args.Email)
+    if err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error while fetching user by email")
+    }
+    target_user_uid := target_user.UserId
+
+    update := (&auth.UserToUpdate{}).EmailVerified(true)
+    updated, err := auth.UpdateUser(context.Background(), target_user_uid, update)
+    if err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error while updating")
+    }
+
+    return c.JSON(fiber.Map{
+        "success": true,
+    });
+}
+
+
 func SetupDashboardAPIRoutes(app *fiber.App) {
     fbcreds := os.Getenv("FIREBASE_ADMIN_CREDS")
     if fbcreds == "" {
@@ -534,4 +578,7 @@ func SetupDashboardAPIRoutes(app *fiber.App) {
     api.Post("/updates", HandleReadUpdatesAPIRequest)
     api.Get("/unresolved-feedback", HandleGetUnresolveFeedbackAPIRequest)
     api.Post("/resolve-feedback", HandleResolveFeedbackAPIRequest)
+    api.Post("/verify-email", func (c *fiber.Ctx) error {
+        return HandleVerifyEmailAPIRequest(c, fbapp);
+    })
 }
