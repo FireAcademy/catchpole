@@ -28,10 +28,11 @@ func main() {
 
     SetupDB()
 
+    SetupManagementAPIRoutes(app)
     SetupLeafletRoutes(app)
-    SetupStripeWebhook(app)
-    SetupAdminRoutes(app)
-    SetupDashboardAPIRoutes(app)
+    // SetupStripeWebhook(app)
+    // SetupAdminRoutes(app)
+    // SetupDashboardAPIRoutes(app)
     SetupBetaRoutes(app)
 
     go StripeBillRoutine()
