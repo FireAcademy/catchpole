@@ -76,9 +76,14 @@ func SetupManagementAPIRoutes(app *fiber.App) {
         panic("CATCHPOLE_MANAGEMENT_TOKEN not set.")
     }
 
-    api.Use(
-        // todo: verify given token in header with management_token
-    )
+    api.Use(func(c *fiber.Ctx) error {
+        mgmt_tok := c.Get("X-Management-Token")
+        if mgmt_tok != management_token {
+            return MakeErrorResponse(c, "X-Management-Token has incorrect value")
+        }
+
+        return c.Next()
+    })
     
     api.Post("/bill-credits", HandleBillCreditsAPIRequest)
     api.Post("/is-api-key-active", HandleIsAPIKeyActiveArgsAPIRequest)
