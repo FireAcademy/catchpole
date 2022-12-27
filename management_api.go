@@ -5,7 +5,6 @@ import (
     "github.com/gofiber/fiber/v2"
 )
 
-// Field names should start with an uppercase letter
 type BillCreditsArgs struct {
     APIKey string `json:"api_key"`
     Credits int64 `json:"credits"`
@@ -24,7 +23,7 @@ func HandleBillCreditsAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "API keys are 36 chars long")
     }
 
-    // check args.Name
+    // check args.Credits
     if args.Credits < 1 {
         return MakeErrorResponse(c, "number of billed credits should be a positive number")
     }
@@ -36,6 +35,37 @@ func HandleBillCreditsAPIRequest(c *fiber.Ctx) error {
 
     return c.JSON(fiber.Map{
         "success": true,
+    });
+}
+
+type IsAPIKeyActiveArgs struct {
+    APIKey string `json:"api_key"`
+    Credits int64 `json:"credits"`
+}
+
+func HandleIsAPIKeyActiveArgsAPIRequest(c *fiber.Ctx) error {
+    args := new(BillCreditsArgs)
+
+    if err := c.BodyParser(args); err != nil {
+        log.Print(err)
+        return MakeErrorResponse(c, "error ocurred while decoding input data")
+    }
+
+    // check args.APIKey
+    if len(args.APIKey) != 36 {
+        return MakeErrorResponse(c, "API keys are 36 chars long")
+    }
+
+    // check args.Credits
+    if args.Credits < 1 {
+        return MakeErrorResponse(c, "number of billed credits should be a positive number")
+    }
+
+    _, _, active := CheckAPIKeyAndReturnAPIKeyAndSubscribed(args.APIKey, args.Credits)
+
+    return c.JSON(fiber.Map{
+        "success": true,
+        "active": active,
     });
 }
 
@@ -51,4 +81,5 @@ func SetupManagementAPIRoutes(app *fiber.App) {
     )
     
     api.Post("/bill-credits", HandleBillCreditsAPIRequest)
+    api.Post("/is-api-key-active", HandleIsAPIKeyActiveArgsAPIRequest)
 }
