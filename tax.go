@@ -79,7 +79,7 @@ func LeafletTaxTrafficAndReturnOrigin(api_key string, credits_per_request int64)
     return apiKey.origin, error2
 } 
 
-func TaxAPIKey(api_key string) bool /* errored */ {
+func TaxAPIKey(api_key string, credits int64) bool /* errored */ {
     apiKey, weeklyUsage, subscribed := GetAPIKeyAndWeeklyUsage(api_key)
     if weeklyUsage == nil {
         weeklyUsage = CreateWeeklyUsage(api_key)
@@ -92,5 +92,5 @@ func TaxAPIKey(api_key string) bool /* errored */ {
         return true
     }
 
-    return TaxTraffic(apiKey, subscribed, weeklyUsage)
+    return TaxTraffic(apiKey, subscribed, credits)
 }

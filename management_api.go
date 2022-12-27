@@ -29,7 +29,7 @@ func HandleBillCreditsAPIRequest(c *fiber.Ctx) error {
         return MakeErrorResponse(c, "number of billed credits should be a positive number")
     }
     
-    errored := TaxAPIKey(args.APIKey, aegs.Credits)
+    errored := TaxAPIKey(args.APIKey, args.Credits)
     if errored {
         return MakeErrorResponse(c, "error while billing credits")
     }
