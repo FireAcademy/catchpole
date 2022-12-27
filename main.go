@@ -30,9 +30,9 @@ func main() {
 
     SetupManagementAPIRoutes(app)
     SetupLeafletRoutes(app)
-    // SetupStripeWebhook(app)
-    // SetupAdminRoutes(app)
-    // SetupDashboardAPIRoutes(app)
+    SetupStripeWebhook(app)
+    SetupAdminRoutes(app)
+    SetupDataDudeRoutes(app)
     SetupBetaRoutes(app)
 
     go StripeBillRoutine()
