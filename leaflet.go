@@ -46,15 +46,10 @@ func LeafletHandler(c *fiber.Ctx) error {
 }
 
 func SetupLeafletBaseUrl() {
-    leaflet_host := os.Getenv("CATCHPOLE_LEAFLET_HOST")
-    if leaflet_host == "" {
-        leaflet_host = "leaflet"
+    leaflet_base_url = os.Getenv("LEAFLET_BASE_URL")
+    if leaflet_base_url == "" {
+        panic("LEAFLET_BASE_URL not set")
     }
-    leaflet_port := os.Getenv("CATCHPOLE_LEAFLET_PORT")
-    if leaflet_port == "" {
-        leaflet_port = "18444"
-    }
-    leaflet_base_url = fmt.Sprintf("http://%s:%s", leaflet_host, leaflet_port)
     fmt.Printf("Leaflet at %s\n", leaflet_base_url)
 }
 

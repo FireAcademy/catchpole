@@ -69,15 +69,10 @@ func BetaHandler(c *fiber.Ctx) error {
 }
 
 func SetupBetaBaseUrl() {
-    beta_host := os.Getenv("CATCHPOLE_BETA_HOST")
-    if beta_host == "" {
-        beta_host = "beta"
+    beta_base_url = os.Getenv("BETA_BASE_URL")
+    if beta_base_url == "" {
+        panic("BETA_BASE_URL not set")
     }
-    beta_port := os.Getenv("CATCHPOLE_BETA_PORT")
-    if beta_port == "" {
-        beta_port = "5000"
-    }
-    beta_base_url = fmt.Sprintf("http://%s:%s", beta_host, beta_port)
     fmt.Printf("Beta at %s\n", beta_base_url)
 }
 
