@@ -11,7 +11,7 @@ RUN go mod verify
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 RUN go build -v -ldflags="-w -s" -o catchpole .
 
-FROM alpine
+FROM scratch
 
 COPY --from=builder /catchpole_build/catchpole /catchpole
 
