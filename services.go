@@ -19,16 +19,16 @@ func getConfig() string {
 
 func getRoute(route string) (bool /* exists */, Route) {
 	r, ok := config[route]
-	return r, ok
+	return ok, r
 }
 
-func getCost(route string, path string) (bool /* exists */, int32) {
-	ok, r = getRoute(route)
+func getCost(route string, method string, path string) (bool /* exists */, int32) {
+	ok, r := getRoute(route)
 	if !ok {
 		return false, 0
 	}
 
-	cost, ok := r.Endpoints[path]
+	cost, ok := r.Endpoints[method + "." + path]
 	if !ok {
 		cost, ok = r.Endpoints["*"]
 		if !ok {
