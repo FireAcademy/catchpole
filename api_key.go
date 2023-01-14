@@ -1,13 +1,18 @@
 package main
 
 import (
+    "os"
+    "log"
+    "time"
+    "context"
     "google.golang.org/grpc"
     "github.com/gofiber/fiber/v2"
     pb "github.com/fireacademy/golden-gate/grpc"
     "google.golang.org/grpc/credentials/insecure"
+    redis_mod "github.com/fireacademy/golden-gate/redis"
 )
 
-var client *pb.GoldenGateClient
+var client pb.GoldenGateClient
 
 func GetAPIKeyForRequest(c *fiber.Ctx) string {
     api_key := c.Params("api_key")
@@ -22,16 +27,19 @@ func GetAPIKeyForRequest(c *fiber.Ctx) string {
 }
 
 func CheckAPIKey(api_key string) (bool /* ok */, string /* origin */, error /* err */) {
-    ok, origin, err := CheckAPIKeyQuickly(api_key)
+    ok, origin, err := redis_mod.CheckAPIKeyQuickly(api_key)
     if err == nil {
         return ok, origin, nil
     }
 
     // not in redis - time to call golden-gate
-    ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+    ctx, cancel := context.WithTimeout(context.Background(), 2 * time.Second)
     defer cancel()
 
-    reply, err := client.GetFeature(ctx, point)
+    data := pb.RefreshAPIKeyRequest{
+        APIKey: api_key,
+    }
+    reply, err := client.RefreshAPIKeyData(ctx, &data)
     return reply.CanBeUsed, reply.Origin, err
 }
 
@@ -49,12 +57,12 @@ func SetupRPCClient() {
     opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
     serverAddr := getGoldenGateAddress()
-    conn, err := grpc.Dial(*serverAddr, opts...)
+    conn, err := grpc.Dial(serverAddr, opts...)
     if err != nil {
         log.Print(err)
         panic(err)
     }
-    defer conn.Close()
+    // defer conn.Close()
 
-    client := pb.NewGoldenGateClient(conn)
+    client = pb.NewGoldenGateClient(conn)
 }

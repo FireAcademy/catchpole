@@ -1,11 +1,12 @@
 package main
 
 import (
+	"io"
 	"log"
 	"bytes"
-	"errors"
     "net/http"
     "io/ioutil"
+    "encoding/json"
 	"github.com/gofiber/fiber/v2"
 	redis_mod "github.com/fireacademy/golden-gate/redis"
 )
@@ -24,7 +25,7 @@ func MakeRequest(
 	body []byte,
 	header_keys []string,
 	header_values []string,
-) (http.Response, error) {
+) (*http.Response, error) {
 	client := &http.Client{}
 
 	var body_buf io.Reader
@@ -38,15 +39,15 @@ func MakeRequest(
 	}
 	req, err := http.NewRequest(method, url, body_buf)
 	if err != nil {
-		return http.Response{}, err
+		return &http.Response{}, err
 	}
 
 	if method != "GET" {
-		req.Headers.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", "application/json")
 	}
 	for i, header_key := range header_keys {
-		header_value := header_vales[i]
-		req.Headers.Set(header_key, header_value)
+		header_value := header_values[i]
+		req.Header.Set(header_key, header_value)
 	}
 
 	res, err := client.Do(req)
@@ -63,12 +64,12 @@ func HandleRequest(c *fiber.Ctx) error {
 	http_method := c.Method()
 
 	/* validate route & get info (+ cost) */
-	ok1, route := getRoute(route_str)
+	ok1, route := GetRoute(route_str)
 	if !ok1 {
 		return MakeErrorResponse(c, "unknown route")
 	}
 	
-	ok2, cost := getCost(route_str, http_method, path_str)
+	ok2, cost := GetCost(route_str, http_method, path_str)
 	if !ok2 {
 		return MakeErrorResponse(c, "unknown path")
 	}
@@ -78,17 +79,18 @@ func HandleRequest(c *fiber.Ctx) error {
 	headers := route.Headers
 	billing_method := route.BillingMethod
 
-	header_values = make([]string)
-	for i, header := range headers {
-		header_values = append(header_values, c.Get(headers[i]))
+	header_values := make([]string, 0)
+	for _, header := range headers {
+		header_values = append(header_values, c.Get(header))
 	}
 
-	service_url = service_base_url + parh_str
+	service_url := service_base_url + path_str
 
 	/* check API key if this request is billed */
 	have_to_bill := billing_method != "none"
+	var api_key string
 	if have_to_bill {
-		api_key := GetAPIKeyForRequest()
+		api_key = GetAPIKeyForRequest(c)
 		if api_key == "" {
 			return MakeErrorResponse(c, "no API key provided")
 		}
@@ -113,7 +115,7 @@ func HandleRequest(c *fiber.Ctx) error {
 
 	/* bill it */
 	if billing_method == "per_request" {
-		err = redis_mod.BillCreditsQuickly(cost)
+		err = redis_mod.BillCreditsQuickly(api_key, cost)
 		if err != nil {
 			log.Print("did not bill request :(")
 		}
@@ -139,7 +141,7 @@ func HandleRequest(c *fiber.Ctx) error {
     	    }
     	}
 
-    	err = redis_mod.BillCreditsQuickly(cost * billed_results)
+    	err = redis_mod.BillCreditsQuickly(api_key, cost * billed_results)
     	if err != nil {
 			log.Print("did not bill request :(")
     	}

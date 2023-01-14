@@ -4,10 +4,6 @@ import (
 	"os"
 	"fmt"
 	"log"
-	"bytes"
-	"errors"
-    "net/http"
-    "io/ioutil"
 	"github.com/gofiber/fiber/v2"
 	redis_mod "github.com/fireacademy/golden-gate/redis"
 )
@@ -29,7 +25,7 @@ func main() {
 	SetupConfig()
 	redis_mod.SetupRedis()
 	SetupRPCClient()
-	
+
 	app := fiber.New()
 
 	app.Get("/", Index)

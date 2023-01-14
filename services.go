@@ -22,8 +22,8 @@ func GetRoute(route string) (bool /* exists */, Route) {
 	return ok, r
 }
 
-func GetCost(route string, method string, path string) (bool /* exists */, int32) {
-	ok, r := getRoute(route)
+func GetCost(route string, method string, path string) (bool /* exists */, int64) {
+	ok, r := GetRoute(route)
 	if !ok {
 		return false, 0
 	}
