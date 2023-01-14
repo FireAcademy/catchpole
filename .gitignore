@@ -16,4 +16,4 @@
 
 # custom
 .env
-firebase-priv-key.json
+prices.json

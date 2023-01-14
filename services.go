@@ -17,7 +17,36 @@ func getConfig() string {
    return port
 }
 
+func getRoute(route string) (bool /* exists */, Route) {
+	r, ok := config[route]
+	return r, ok
+}
+
+func getCost(route string, path string) (bool /* exists */, int32) {
+	ok, r = getRoute(route)
+	if !ok {
+		return false, 0
+	}
+
+	cost, ok := r.Endpoints[path]
+	if !ok {
+		cost, ok = r.Endpoints["*"]
+		if !ok {
+			return false, 0
+		}
+
+		return true, cost
+	}
+
+	return true, cost
+}
+
 func SetupConfig() {
 	config_str := getConfig()
-	config = JSON.Unmarshal(config_str, &config)
+	err := json.Unmarshal([]byte(config_str), &config)
+
+	if err != nil {
+		log.Print(err)
+		panic(err)
+	}
 }
