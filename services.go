@@ -17,12 +17,12 @@ func getConfig() string {
    return port
 }
 
-func getRoute(route string) (bool /* exists */, Route) {
+func GetRoute(route string) (bool /* exists */, Route) {
 	r, ok := config[route]
 	return ok, r
 }
 
-func getCost(route string, method string, path string) (bool /* exists */, int32) {
+func GetCost(route string, method string, path string) (bool /* exists */, int32) {
 	ok, r := getRoute(route)
 	if !ok {
 		return false, 0
