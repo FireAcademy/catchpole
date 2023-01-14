@@ -7,6 +7,7 @@ import (
     "net/http"
     "io/ioutil"
 	"github.com/gofiber/fiber/v2"
+	redis_mod "github.com/fireacademy/golden-gate/redis"
 )
 
 func MakeErrorResponse(c *fiber.Ctx, message string) error {
@@ -52,20 +53,24 @@ func MakeRequest(
 	return res, err
 }
 
+type ResponseOfResultsBilledRequest struct {
+    Results int64 `json:"results"`
+}
+
 func HandleRequest(c *fiber.Ctx) error {
 	route_str := c.Params("route")
 	path_str := c.Params("*")
 	http_method := c.Method()
 
-	/* Validate route & get info (+ cost) */
+	/* validate route & get info (+ cost) */
 	ok1, route := getRoute(route_str)
 	if !ok1 {
-		return MakeErrorResponse("unknown route")
+		return MakeErrorResponse(c, "unknown route")
 	}
 	
 	ok2, cost := getCost(route_str, http_method, path_str)
 	if !ok2 {
-		return MakeErrorResponse("unknown path")
+		return MakeErrorResponse(c, "unknown path")
 	}
 
 	/* parse service info and prepare to make request */
@@ -80,25 +85,69 @@ func HandleRequest(c *fiber.Ctx) error {
 
 	service_url = service_base_url + parh_str
 
-	if billing_method == "per_request" {
+	/* check API key if this request is billed */
+	have_to_bill := billing_method != "none"
+	if have_to_bill {
 		api_key := GetAPIKeyForRequest()
 		if api_key == "" {
-			return MakeErrorResponse("no API key provided")
+			return MakeErrorResponse(c, "no API key provided")
 		}
 
 		ok, origin, err := CheckAPIKey(api_key)
-		// TODO: bill
-
-		resp, err := MakeRequest(c, http_method, service_url, c.Body(), headers, header_values)
 		if err != nil {
 			log.Print(err)
-			return MakeErrorResponse("error while calling internal service")
+			return MakeErrorResponse(c, "could not check API key")
 		}
-	} else if billing_method == "per_result" {
-		// TODO:
-	} else if billing_method == "none" {
-		// TODO;
+		if !ok {
+			return MakeErrorResponse(c, "invalid or blocked API key")
+		}
+		c.Set("Access-Control-Allow-Origin", origin)
+	}
+	
+	/* make request */
+	resp, err := MakeRequest(c, http_method, service_url, c.Body(), headers, header_values)
+	if err != nil {
+		log.Print(err)
+		return MakeErrorResponse(c, "error while calling internal service")
 	}
 
-	return MakeErrorResponse("internal error ocurred")
+	/* bill it */
+	if billing_method == "per_request" {
+		err = redis_mod.BillCreditsQuickly(cost)
+		if err != nil {
+			log.Print("did not bill request :(")
+		}
+	} else if billing_method == "per_result" {
+		defer resp.Body.Close()
+
+		body, err := ioutil.ReadAll(resp.Body)
+    	if err != nil {
+        	log.Print(err)
+        	return MakeErrorResponse(c, "error ocurred while reading response")
+    	}
+
+    	billed_results := int64(1)
+
+    	billable_resp := new(ResponseOfResultsBilledRequest)
+		err = json.Unmarshal(body, &billable_resp)
+		if err != nil {
+        	log.Print(err)
+        	return MakeErrorResponse(c, "error ocurred while decoding response")
+    	} else {
+    	    if billable_resp.Results > 1 {
+    	        billed_results = billable_resp.Results
+    	    }
+    	}
+
+    	err = redis_mod.BillCreditsQuickly(cost * billed_results)
+    	if err != nil {
+			log.Print("did not bill request :(")
+    	}
+
+    	c.Set("Content-Type", "application/json")
+    	return c.SendString(string(body))
+	}
+	
+	c.Set("Content-Type", "application/json")
+	return MakeErrorResponse(c, "internal error ocurred")
 }
