@@ -13,6 +13,7 @@ RUN go build -v -ldflags="-w -s" -o /catchpole .
 
 FROM scratch
 
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /catchpole /catchpole
 
 ENTRYPOINT ["/catchpole"]
