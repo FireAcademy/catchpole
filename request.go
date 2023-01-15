@@ -151,5 +151,5 @@ func HandleRequest(c *fiber.Ctx) error {
 	}
 	
 	c.Set("Content-Type", "application/json")
-	return MakeErrorResponse(c, "internal error ocurred")
+	return c.Status(resp.StatusCode).SendStream(resp.Body)
 }
