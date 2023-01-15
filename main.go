@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	redis_mod "github.com/fireacademy/golden-gate/redis"
 )
 
@@ -27,6 +28,7 @@ func main() {
 	SetupRPCClient()
 
 	app := fiber.New()
+	app.Use(cors.New())
 
 	app.Get("/", Index)
 	app.Get("/:api_key<guid>/:route/*", HandleRequest)

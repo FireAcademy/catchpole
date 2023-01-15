@@ -43,6 +43,8 @@ func CheckAPIKey(api_key string) (bool /* ok */, string /* origin */, error /* e
     if err == nil {
         return reply.CanBeUsed, reply.Origin, nil
     }
+
+    log.Print(err)
     return false, "", err
 }
 
