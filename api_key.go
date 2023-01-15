@@ -40,7 +40,10 @@ func CheckAPIKey(api_key string) (bool /* ok */, string /* origin */, error /* e
         APIKey: api_key,
     }
     reply, err := client.RefreshAPIKeyData(ctx, &data)
-    return reply.CanBeUsed, reply.Origin, err
+    if err == nil {
+        return reply.CanBeUsed, reply.Origin, nil
+    }
+    return false, "", err
 }
 
 func getGoldenGateAddress() string {
