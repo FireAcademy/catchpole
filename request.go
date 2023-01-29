@@ -4,6 +4,7 @@ import (
 	"io"
 	"bytes"
 	"errors"
+	"context"
     "net/http"
     "io/ioutil"
     "encoding/json"
@@ -28,13 +29,16 @@ func MakeErrorResponse(c *fiber.Ctx, message string) error {
 }
 
 func MakeRequest(
-	c *fiber.Ctx,
+	ctx context.Context,
 	method string,
 	url string,
 	body []byte,
 	header_keys []string,
 	header_values []string,
 ) (*http.Response, error) {
+	ctx, span := telemetry.GetSpan(ctx, "MakeRequest")
+	defer span.End()
+
 	client := &http.Client{}
 
 	var body_buf io.Reader
@@ -125,7 +129,7 @@ func HandleRequest(c *fiber.Ctx) error {
 	}
 	
 	/* make request */
-	resp, err := MakeRequest(c, http_method, service_url, c.Body(), headers, header_values)
+	resp, err := MakeRequest(ctx, http_method, service_url, c.Body(), headers, header_values)
 	if err != nil {
 		telemetry.LogError(ctx, err, "could not call internal service")
 		return MakeErrorResponse(c, "error while calling internal service")
