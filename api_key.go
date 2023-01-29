@@ -7,7 +7,9 @@ import (
     "context"
     "google.golang.org/grpc"
     "github.com/gofiber/fiber/v2"
+    "go.opentelemetry.io/otel/attribute"
     pb "github.com/fireacademy/golden-gate/grpc"
+    telemetry "github.com/fireacademy/telemetry"
     "google.golang.org/grpc/credentials/insecure"
     redis_mod "github.com/fireacademy/golden-gate/redis"
     "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -28,6 +30,12 @@ func GetAPIKeyForRequest(c *fiber.Ctx) string {
 }
 
 func CheckAPIKey(ctx context.Context, api_key string) (bool /* ok */, string /* origin */, error /* err */) {
+    ctx, span := telemetry.GetSpan(ctx, "CheckAPIKey")
+    span.SetAttributes(
+        attribute.String("api_key", api_key),
+    )
+    defer span.End()
+
     ok, origin, err := redis_mod.CheckAPIKeyQuickly(ctx, api_key)
     if err == nil {
         return ok, origin, nil
@@ -45,7 +53,7 @@ func CheckAPIKey(ctx context.Context, api_key string) (bool /* ok */, string /* 
         return reply.CanBeUsed, reply.Origin, nil
     }
 
-    log.Print(err)
+    telemetry.LogError(ctx, err, "error while calling RefreshAPIKeyData (golden-gate)")
     return false, "", err
 }
 
