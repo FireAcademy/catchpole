@@ -4,7 +4,10 @@ import (
 	"os"
 	"fmt"
 	"log"
+	"context"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/contrib/otelfiber"
+	telemetry "github.com/fireacademy/telemetry"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	redis_mod "github.com/fireacademy/golden-gate/redis"
 )
@@ -23,11 +26,15 @@ func getPort() string {
 }
 
 func main() {
+	cleanup := telemetry.Initialize()
+	defer cleanup(context.Background())
+
 	SetupConfig()
 	redis_mod.SetupRedis()
 	SetupRPCClient()
 
 	app := fiber.New()
+	app.Use(otelfiber.Middleware())
 	app.Use(cors.New())
 
 	app.Get("/", Index)

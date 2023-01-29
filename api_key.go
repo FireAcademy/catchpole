@@ -10,6 +10,7 @@ import (
     pb "github.com/fireacademy/golden-gate/grpc"
     "google.golang.org/grpc/credentials/insecure"
     redis_mod "github.com/fireacademy/golden-gate/redis"
+    "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 )
 
 var client pb.GoldenGateClient
@@ -26,8 +27,8 @@ func GetAPIKeyForRequest(c *fiber.Ctx) string {
     return api_key
 }
 
-func CheckAPIKey(api_key string) (bool /* ok */, string /* origin */, error /* err */) {
-    ok, origin, err := redis_mod.CheckAPIKeyQuickly(api_key)
+func CheckAPIKey(ctx context.Context, api_key string) (bool /* ok */, string /* origin */, error /* err */) {
+    ok, origin, err := redis_mod.CheckAPIKeyQuickly(ctx, api_key)
     if err == nil {
         return ok, origin, nil
     }
@@ -60,6 +61,8 @@ func getGoldenGateAddress() string {
 func SetupRPCClient() {
     var opts []grpc.DialOption
     opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+    opts = append(opts, grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()))
+    opts = append(opts, grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()))
 
     serverAddr := getGoldenGateAddress()
     conn, err := grpc.Dial(serverAddr, opts...)

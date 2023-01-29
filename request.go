@@ -2,16 +2,25 @@ package main
 
 import (
 	"io"
-	"log"
 	"bytes"
+	"errors"
     "net/http"
     "io/ioutil"
     "encoding/json"
 	"github.com/gofiber/fiber/v2"
+	"go.opentelemetry.io/otel/attribute"
+	telemetry "github.com/fireacademy/telemetry"
 	redis_mod "github.com/fireacademy/golden-gate/redis"
 )
 
 func MakeErrorResponse(c *fiber.Ctx, message string) error {
+	_, span := telemetry.GetSpan(c.UserContext(), "MakeErrorResponse")
+	span.SetAttributes(
+		attribute.String("response.code", "418"),
+		attribute.String("response.message", message),
+	)
+	defer span.End()
+
 	return c.Status(418).JSON(fiber.Map{
 		"success": false,
 		"message": message,
@@ -63,6 +72,9 @@ func HandleRequest(c *fiber.Ctx) error {
 	path_str := c.Params("*")
 	http_method := c.Method()
 
+	ctx, span := telemetry.GetSpan(c.UserContext(), "HandleRequest")
+	defer span.End()
+
 	/* validate route & get info (+ cost) */
 	ok1, route := GetRoute(route_str)
 	if !ok1 {
@@ -86,6 +98,12 @@ func HandleRequest(c *fiber.Ctx) error {
 
 	service_url := service_base_url + path_str
 
+	span.SetAttributes(
+		attribute.Int64("cost", cost),
+		attribute.String("service_url", service_url),
+		attribute.String("billing_method", billing_method),
+	)
+
 	/* check API key if this request is billed */
 	have_to_bill := billing_method != "none"
 	var api_key string
@@ -95,9 +113,9 @@ func HandleRequest(c *fiber.Ctx) error {
 			return MakeErrorResponse(c, "no API key provided")
 		}
 
-		ok, origin, err := CheckAPIKey(api_key)
+		ok, origin, err := CheckAPIKey(ctx, api_key)
 		if err != nil {
-			log.Print(err)
+			telemetry.LogError(ctx, err, "could not check API key")
 			return MakeErrorResponse(c, "could not check API key")
 		}
 		if !ok {
@@ -109,45 +127,49 @@ func HandleRequest(c *fiber.Ctx) error {
 	/* make request */
 	resp, err := MakeRequest(c, http_method, service_url, c.Body(), headers, header_values)
 	if err != nil {
-		log.Print(err)
+		telemetry.LogError(ctx, err, "could not call internal service")
 		return MakeErrorResponse(c, "error while calling internal service")
 	}
 
 	/* bill it */
 	if billing_method == "per_request" {
-		err = redis_mod.BillCreditsQuickly(api_key, cost)
+		err = redis_mod.BillCreditsQuickly(ctx, api_key, cost)
 		if err != nil {
-			log.Print("did not bill request :(")
+			telemetry.LogError(
+				ctx,
+				errors.New(api_key + " not billed :|"),
+				"could not bill user's request",
+			)
 		}
 	} else if billing_method == "per_result" {
 		defer resp.Body.Close()
 
 		body, err := ioutil.ReadAll(resp.Body)
-    	if err != nil {
-        	log.Print(err)
-        	return MakeErrorResponse(c, "error ocurred while reading response")
-    	}
+		if err != nil {
+			telemetry.LogError(ctx, err, "could not read response")
+			return MakeErrorResponse(c, "error ocurred while reading response")
+		}
 
-    	billed_results := int64(1)
+		billed_results := int64(1)
 
-    	billable_resp := new(ResponseOfResultsBilledRequest)
+		billable_resp := new(ResponseOfResultsBilledRequest)
 		err = json.Unmarshal(body, &billable_resp)
 		if err != nil {
-        	log.Print(err)
-        	return MakeErrorResponse(c, "error ocurred while decoding response")
-    	} else {
-    	    if billable_resp.Results > 1 {
-    	        billed_results = billable_resp.Results
-    	    }
-    	}
+			telemetry.LogError(ctx, err, "could not decode response")
+			return MakeErrorResponse(c, "error ocurred while decoding response")
+		} else {
+			if billable_resp.Results > 1 {
+				billed_results = billable_resp.Results
+			}
+		}
 
-    	err = redis_mod.BillCreditsQuickly(api_key, cost * billed_results)
-    	if err != nil {
-			log.Print("did not bill request :(")
-    	}
+		err = redis_mod.BillCreditsQuickly(ctx, api_key, cost * billed_results)
+		if err != nil {
+			telemetry.LogError(ctx, err, "could not bill request")
+		}
 
-    	c.Set("Content-Type", "application/json")
-    	return c.SendString(string(body))
+		c.Set("Content-Type", "application/json")
+		return c.SendString(string(body))
 	}
 	
 	c.Set("Content-Type", "application/json")

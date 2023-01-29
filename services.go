@@ -11,7 +11,7 @@ var config Config
 func getConfig() string {
     port := os.Getenv("CATCHPOLE_CONFIG")
    if port == "" {
-       panic("CATCHPOLE_CONFIG not set")
+       log.Fatal("CATCHPOLE_CONFIG not set")
    }
 
    return port
