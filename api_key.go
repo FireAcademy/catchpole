@@ -62,7 +62,7 @@ func SetupRPCClient() {
     serverAddr := getGoldenGateAddress()
     conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()),
         grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
-        grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())
+        grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()),
     )
     if err != nil {
         log.Print(err)
