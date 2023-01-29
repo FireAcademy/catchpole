@@ -34,7 +34,7 @@ func CheckAPIKey(ctx context.Context, api_key string) (bool /* ok */, string /* 
     }
 
     // not in redis - time to call golden-gate
-    ctx, cancel := context.WithTimeout(context.Background(), 2 * time.Second)
+    ctx, cancel := context.WithTimeout(ctx, 2 * time.Second)
     defer cancel()
 
     data := pb.RefreshAPIKeyRequest{
@@ -59,13 +59,11 @@ func getGoldenGateAddress() string {
 }
 
 func SetupRPCClient() {
-    var opts []grpc.DialOption
-    opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-    opts = append(opts, grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()))
-    opts = append(opts, grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()))
-
     serverAddr := getGoldenGateAddress()
-    conn, err := grpc.Dial(serverAddr, opts...)
+    conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()),
+        grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
+        grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())
+    )
     if err != nil {
         log.Print(err)
         panic(err)
