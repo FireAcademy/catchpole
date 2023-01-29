@@ -3,7 +3,6 @@ package main
 import (
     "os"
     "log"
-    "time"
     "context"
     "google.golang.org/grpc"
     "github.com/gofiber/fiber/v2"
@@ -42,8 +41,8 @@ func CheckAPIKey(ctx context.Context, api_key string) (bool /* ok */, string /* 
     }
 
     // not in redis - time to call golden-gate
-    ctx, cancel := context.WithTimeout(ctx, 2 * time.Second)
-    defer cancel()
+    // ctx, cancel := context.WithTimeout(ctx, 2 * time.Second)
+    // defer cancel()
 
     data := pb.RefreshAPIKeyRequest{
         APIKey: api_key,
